@@ -311,8 +311,8 @@ class DatabaseService {
   }
 
   // Task Operations
-  async createTask(task: Omit<DBTask, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
-    console.log('DatabaseService - Creating task with data:', task);
+  async _createTaskInternal(task: Omit<DBTask, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+    console.log('DatabaseService - _createTaskInternal called with data:', task);
     
     if (!this.db) throw new Error('Database not initialized');
     

@@ -7,23 +7,27 @@ import {
   Modal,
   TextInput,
   Platform,
-  Vibration
+  Vibration,
+  Animated,
+  Easing,
+  ScrollView
 } from 'react-native';
 import { useTaskStore } from '../stores/taskStore';
 import { Task } from '../types/Task';
 import { useTheme } from '../theme/ThemeProvider';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
+import Svg, { Circle } from 'react-native-svg';
 
 interface PomodoroTimerProps {
-  isVisible: boolean;
-  onClose: () => void;
+  onClose?: () => void;
   initialTaskId?: string;
+  showCloseButton?: boolean;
 }
 
 const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
-  isVisible,
   onClose,
-  initialTaskId
+  initialTaskId,
+  showCloseButton = true
 }) => {
   const { theme, isDark } = useTheme();
   const {
@@ -43,9 +47,13 @@ const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
   const [interruptionNote, setInterruptionNote] = useState('');
   const [showTaskSelector, setShowTaskSelector] = useState(false);
   const [showInterruptionDialog, setShowInterruptionDialog] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
   
-  // Refs
+  // Animation refs
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const progressAnimation = useRef(new Animated.Value(0)).current;
+  const pulseAnimation = useRef(new Animated.Value(1)).current;
   
   // Computed values
   const selectedTask = selectedTaskId 
@@ -62,6 +70,51 @@ const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
         ? 'Long Break' 
         : 'Short Break') 
     : 'Work Session';
+  
+  // Color scheme based on current state
+  const timerColor = isBreak ? theme.colors.success : theme.colors.primary;
+  
+  // Calculate progress percentage for the circular indicator
+  const totalDuration = isBreak 
+    ? (currentPomodoro.timeRemaining > pomodoroSettings.shortBreakDuration * 60 
+        ? pomodoroSettings.longBreakDuration * 60 
+        : pomodoroSettings.shortBreakDuration * 60)
+    : pomodoroSettings.workDuration * 60;
+    
+  const progress = (totalDuration - currentPomodoro.timeRemaining) / totalDuration;
+  
+  // Update progress animation
+  useEffect(() => {
+    Animated.timing(progressAnimation, {
+      toValue: progress,
+      duration: 300,
+      useNativeDriver: false,
+      easing: Easing.linear
+    }).start();
+    
+    // Add pulse animation when under 1 minute
+    if (currentPomodoro.timeRemaining <= 60 && isActive) {
+      Animated.sequence([
+        Animated.timing(pulseAnimation, {
+          toValue: 1.05,
+          duration: 500,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.ease)
+        }),
+        Animated.timing(pulseAnimation, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+          easing: Easing.in(Easing.ease)
+        })
+      ]).start(() => {
+        if (currentPomodoro.timeRemaining <= 60 && isActive) {
+          // Only restart if still active and under 1 minute
+          pulseAnimation.setValue(1);
+        }
+      });
+    }
+  }, [currentPomodoro.timeRemaining, isActive]);
   
   // Set up timer
   useEffect(() => {
@@ -119,7 +172,7 @@ const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
   // Handle timer completion
   const handleSessionComplete = () => {
     // Vibrate device to notify user
-    if (Platform.OS !== 'web') {
+    if (Platform.OS !== 'web' && soundEnabled) {
       Vibration.vibrate([500, 200, 500]);
     }
     
@@ -129,7 +182,7 @@ const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
   
   const handleBreakComplete = () => {
     // Vibrate device to notify user
-    if (Platform.OS !== 'web') {
+    if (Platform.OS !== 'web' && soundEnabled) {
       Vibration.vibrate([300, 100, 300]);
     }
     
@@ -197,11 +250,13 @@ const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
   };
   
   const handleClose = () => {
+    // Ensure we stop the timer if active
     if (currentPomodoro.active) {
-      // If active, confirm before closing
-      setShowInterruptionDialog(true);
-    } else {
-      // Otherwise, just close
+      stopPomodoro(false, '');
+    }
+    
+    // Make sure we call the onClose prop consistently
+    if (onClose) {
       onClose();
     }
   };
@@ -252,166 +307,375 @@ const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
             {task.title}
           </Text>
           
-          {task.completedPomodoros ? (
-            <Text style={[styles.pomodoroCount, { color: theme.colors.secondary }]}>
-              {task.completedPomodoros} pomodoros completed
-            </Text>
-          ) : null}
+          {selectedTaskId === task.id && (
+            <View style={styles.selectedIndicator}>
+              <MaterialIcons name="check-circle" size={20} color={theme.colors.primary} />
+            </View>
+          )}
         </View>
       </TouchableOpacity>
     ));
   };
   
+  // Interpolate progress animation for circular progress
+  const circleCircumference = 2 * Math.PI * 120; // 2πr where r is the radius
+  const strokeDashoffset = progressAnimation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [circleCircumference, 0]
+  });
+  
+  // Add keydown event handler for Escape key to close the timer
+  useEffect(() => {
+    // Define the handler function
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        handleClose();
+      }
+    };
+
+    // Add the event listener
+    if (Platform.OS === 'web') {
+      document.addEventListener('keydown', handleKeyDown);
+    }
+
+    // Return cleanup function
+    return () => {
+      if (Platform.OS === 'web') {
+        document.removeEventListener('keydown', handleKeyDown);
+      }
+      
+      // Stop the timer if active when component unmounts
+      if (currentPomodoro.active) {
+        stopPomodoro(false, '');
+      }
+    };
+  }, [currentPomodoro.active, stopPomodoro]);
+  
   return (
-    <View style={[
-      styles.timerContainer,
-      { backgroundColor: isDark ? '#222' : '#fff' }
-    ]}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.colors.text }]}>
-          Pomodoro Timer
-        </Text>
-      </View>
-      
-      {/* Task selector */}
-      {!showTaskSelector ? (
-        <TouchableOpacity 
-          style={[
-            styles.taskSelector,
-            { backgroundColor: isDark ? '#333' : '#f5f5f5' }
-          ]}
-          onPress={() => setShowTaskSelector(true)}
-          disabled={currentPomodoro.active}
-        >
-          <Text style={[styles.taskSelectorText, { color: theme.colors.text }]}>
-            {selectedTask ? selectedTask.title : 'Select a task to focus on'}
-          </Text>
-          {!currentPomodoro.active && (
-            <MaterialIcons name="arrow-drop-down" size={24} color={theme.colors.text} />
-          )}
-        </TouchableOpacity>
-      ) : (
-        <View style={styles.taskSelectorContainer}>
-          <View style={styles.taskSelectorHeader}>
-            <Text style={[styles.taskSelectorTitle, { color: theme.colors.text }]}>
-              Select a task
-            </Text>
-            <TouchableOpacity 
-              style={styles.closeTaskSelector}
-              onPress={() => setShowTaskSelector(false)}
-            >
-              <Ionicons name="close" size={20} color={theme.colors.text} />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.taskOptionsList}>
-            {renderTaskOptions()}
-          </View>
-        </View>
-      )}
-      
-      {/* Timer display */}
-      <View style={[
-        styles.timerDisplay,
-        {
-          backgroundColor: isDark ? '#333' : '#f5f5f5',
-          borderColor: isBreak ? theme.colors.success : theme.colors.primary
-        }
-      ]}>
-        <Text style={[styles.timerType, { color: theme.colors.text }]}>
-          {timerTitle}
-        </Text>
-        <Text style={[
-          styles.timer, 
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <ScrollView contentContainerStyle={styles.scrollContainer}>
+        <View style={[
+          styles.pomodoroContainer,
           { 
-            color: isBreak ? theme.colors.success : theme.colors.primary
+            backgroundColor: isDark ? '#222' : '#fff',
+            shadowColor: isDark ? '#000' : '#888',
           }
         ]}>
-          {formattedTime}
-        </Text>
-        <Text style={[styles.sessionCount, { color: theme.colors.secondary }]}>
-          Session {currentPomodoro.currentSessionCount} of {pomodoroSettings.sessionsUntilLongBreak}
-        </Text>
-      </View>
-      
-      {/* Timer controls */}
-      <View style={styles.controls}>
-        {!isActive ? (
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
+              Pomodoro Timer
+            </Text>
+            
+            <View style={styles.headerControls}>
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={() => setSoundEnabled(!soundEnabled)}
+                accessibilityLabel={soundEnabled ? "Disable sound" : "Enable sound"}
+              >
+                <MaterialIcons 
+                  name={soundEnabled ? "volume-up" : "volume-off"} 
+                  size={24} 
+                  color={theme.colors.text} 
+                />
+              </TouchableOpacity>
+              
+              {showCloseButton && (
+                <TouchableOpacity
+                  style={[styles.iconButton, { marginLeft: 8 }]}
+                  onPress={handleClose}
+                >
+                  <MaterialIcons name="close" size={24} color={theme.colors.text} />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+          
+          {/* Task Selection */}
           <TouchableOpacity
             style={[
-              styles.controlButton,
-              styles.primaryButton,
-              { backgroundColor: theme.colors.primary }
+              styles.taskSelector,
+              { backgroundColor: isDark ? '#333' : '#f5f5f5' }
             ]}
-            onPress={currentPomodoro.sessionId ? handleResume : handleStart}
+            onPress={() => setShowTaskSelector(true)}
           >
-            <Text style={[styles.controlButtonText, { color: '#fff' }]}>
-              {currentPomodoro.sessionId ? 'Resume' : 'Start'}
-            </Text>
-          </TouchableOpacity>
-        ) : (
-          <>
-            <TouchableOpacity
-              style={[
-                styles.controlButton,
-                { backgroundColor: theme.colors.warning }
-              ]}
-              onPress={handlePause}
-            >
-              <Text style={[styles.controlButtonText, { color: '#fff' }]}>Pause</Text>
-            </TouchableOpacity>
+            <MaterialIcons 
+              name="assignment" 
+              size={20} 
+              color={theme.colors.primary} 
+              style={styles.taskSelectorIcon}
+            />
             
-            {isBreak ? (
-              <TouchableOpacity
-                style={[
-                  styles.controlButton,
-                  { backgroundColor: theme.colors.secondary }
-                ]}
-                onPress={handleSkipBreak}
-              >
-                <Text style={[styles.controlButtonText, { color: '#fff' }]}>Skip Break</Text>
-              </TouchableOpacity>
+            <Text 
+              style={[
+                styles.taskSelectorText, 
+                { color: theme.colors.text },
+                !selectedTask && { color: theme.colors.placeholder || '#999' }
+              ]}
+              numberOfLines={1}
+            >
+              {selectedTask ? selectedTask.title : 'Select a task to focus on'}
+            </Text>
+            
+            <MaterialIcons 
+              name="keyboard-arrow-down" 
+              size={20} 
+              color={theme.colors.text} 
+            />
+          </TouchableOpacity>
+          
+          {/* Timer Display with Circular Progress */}
+          <Animated.View 
+            style={[
+              styles.timerContainer,
+              { transform: [{ scale: pulseAnimation }] }
+            ]}
+          >
+            <View style={styles.circularProgress}>
+              {/* Background Circle */}
+              <View style={[
+                styles.circleBackground,
+                { borderColor: isDark ? '#444' : '#eee' }
+              ]} />
+              
+              {/* Progress Arc */}
+              <Svg width={250} height={250} style={styles.circleProgress}>
+                <Circle
+                  cx={125}
+                  cy={125}
+                  r={120}
+                  stroke={timerColor}
+                  strokeWidth={10}
+                  fill="transparent"
+                  strokeDasharray={circleCircumference}
+                  strokeDashoffset={strokeDashoffset}
+                  strokeLinecap="round"
+                  transform="rotate(-90, 125, 125)"
+                />
+              </Svg>
+              
+              {/* Timer Text */}
+              <View style={styles.timerTextContainer}>
+                <Text style={[styles.timerTypeText, { color: theme.colors.text }]}>
+                  {timerTitle}
+                </Text>
+                
+                <Text style={[styles.timerText, { color: timerColor }]}>
+                  {formattedTime}
+                </Text>
+                
+                <Text style={[styles.sessionCountText, { color: theme.colors.secondary || '#999' }]}>
+                  Session {currentPomodoro.currentSessionCount} of {pomodoroSettings.sessionsUntilLongBreak}
+                </Text>
+              </View>
+            </View>
+          </Animated.View>
+          
+          {/* Controls */}
+          <View style={styles.controlsContainer}>
+            {isActive ? (
+              <View style={styles.activeControls}>
+                <TouchableOpacity
+                  style={[
+                    styles.controlButton,
+                    { backgroundColor: theme.colors.error }
+                  ]}
+                  onPress={handleStop}
+                >
+                  <MaterialIcons name="stop" size={24} color="#fff" />
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.controlButton,
+                    styles.mainControlButton,
+                    { backgroundColor: isActive ? theme.colors.warning : theme.colors.primary }
+                  ]}
+                  onPress={isActive ? handlePause : isBreak ? handleSkipBreak : handleStart}
+                >
+                  <MaterialIcons 
+                    name={isActive ? "pause" : "play-arrow"} 
+                    size={32} 
+                    color="#fff" 
+                  />
+                </TouchableOpacity>
+                
+                {isBreak && (
+                  <TouchableOpacity
+                    style={[
+                      styles.controlButton,
+                      { backgroundColor: theme.colors.primary }
+                    ]}
+                    onPress={handleSkipBreak}
+                  >
+                    <MaterialIcons name="skip-next" size={24} color="#fff" />
+                  </TouchableOpacity>
+                )}
+                
+                {!isBreak && !isActive && (
+                  <TouchableOpacity
+                    style={[
+                      styles.controlButton,
+                      { backgroundColor: theme.colors.secondary || '#666' }
+                    ]}
+                    onPress={() => setShowSettings(true)}
+                  >
+                    <MaterialIcons name="settings" size={24} color="#fff" />
+                  </TouchableOpacity>
+                )}
+              </View>
             ) : (
               <TouchableOpacity
                 style={[
-                  styles.controlButton,
-                  { backgroundColor: theme.colors.error }
+                  styles.startButton,
+                  { backgroundColor: theme.colors.primary }
                 ]}
-                onPress={handleStop}
+                onPress={currentPomodoro.sessionId ? handleResume : handleStart}
               >
-                <Text style={[styles.controlButtonText, { color: '#fff' }]}>Stop</Text>
+                <MaterialIcons 
+                  name={currentPomodoro.sessionId ? "play-arrow" : "play-circle-filled"} 
+                  size={24} 
+                  color="#fff" 
+                />
+                <Text style={styles.startButtonText}>
+                  {currentPomodoro.sessionId ? 'Resume Session' : 'Start Session'}
+                </Text>
               </TouchableOpacity>
             )}
-          </>
-        )}
-      </View>
-      
-      {/* Stats section */}
-      {selectedTask && selectedTask.completedPomodoros ? (
-        <View style={styles.statsSection}>
-          <Text style={[styles.statsTitle, { color: theme.colors.text }]}>
-            Task Statistics
-          </Text>
-          <View style={styles.statsGrid}>
-            <View style={styles.statItem}>
-              <Text style={[styles.statValue, { color: theme.colors.primary }]}>
-                {selectedTask.completedPomodoros}
+          </View>
+          
+          {/* Session Progress */}
+          {selectedTask && selectedTask.completedPomodoros > 0 && (
+            <View style={styles.statsContainer}>
+              <Text style={[styles.statsTitle, { color: theme.colors.text }]}>
+                Task Progress
               </Text>
-              <Text style={[styles.statLabel, { color: theme.colors.secondary }]}>
-                Completed
-              </Text>
+              
+              <View style={styles.statsRow}>
+                <View style={[
+                  styles.statCard, 
+                  { backgroundColor: isDark ? '#333' : '#f5f5f5' }
+                ]}>
+                  <FontAwesome5 name="hourglass-half" size={18} color={theme.colors.primary} />
+                  <Text style={[styles.statValue, { color: theme.colors.primary }]}>
+                    {selectedTask.completedPomodoros}
+                  </Text>
+                  <Text style={[styles.statLabel, { color: theme.colors.text }]}>
+                    Pomodoros
+                  </Text>
+                </View>
+                
+                <View style={[
+                  styles.statCard, 
+                  { backgroundColor: isDark ? '#333' : '#f5f5f5' }
+                ]}>
+                  <FontAwesome5 name="stopwatch" size={18} color={theme.colors.success} />
+                  <Text style={[styles.statValue, { color: theme.colors.success }]}>
+                    {selectedTask.totalPomodoroTime || 0}
+                  </Text>
+                  <Text style={[styles.statLabel, { color: theme.colors.text }]}>
+                    Minutes
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+          
+          {/* Pomodoro Information */}
+          <View style={styles.infoContainer}>
+            <Text style={[styles.infoTitle, { color: theme.colors.text }]}>
+              What is the Pomodoro Technique?
+            </Text>
+            
+            <Text style={[styles.infoText, { color: theme.colors.text }]}>
+              The Pomodoro Technique is a time management method developed by Francesco Cirillo in the late 1980s. It uses a timer to break work into intervals, traditionally 25 minutes in length, separated by short breaks.
+            </Text>
+            
+            <Text style={[styles.infoSubtitle, { color: theme.colors.text }]}>
+              Benefits:
+            </Text>
+            
+            <View style={styles.benefitsList}>
+              <View style={styles.benefitItem}>
+                <MaterialIcons name="check-circle" size={18} color={theme.colors.primary} style={styles.benefitIcon} />
+                <Text style={[styles.benefitText, { color: theme.colors.text }]}>
+                  Improved focus and concentration
+                </Text>
+              </View>
+              <View style={styles.benefitItem}>
+                <MaterialIcons name="check-circle" size={18} color={theme.colors.primary} style={styles.benefitIcon} />
+                <Text style={[styles.benefitText, { color: theme.colors.text }]}>
+                  Reduced mental fatigue
+                </Text>
+              </View>
+              <View style={styles.benefitItem}>
+                <MaterialIcons name="check-circle" size={18} color={theme.colors.primary} style={styles.benefitIcon} />
+                <Text style={[styles.benefitText, { color: theme.colors.text }]}>
+                  Increased productivity and work quality
+                </Text>
+              </View>
+              <View style={styles.benefitItem}>
+                <MaterialIcons name="check-circle" size={18} color={theme.colors.primary} style={styles.benefitIcon} />
+                <Text style={[styles.benefitText, { color: theme.colors.text }]}>
+                  Better planning and time estimation
+                </Text>
+              </View>
+              <View style={styles.benefitItem}>
+                <MaterialIcons name="check-circle" size={18} color={theme.colors.primary} style={styles.benefitIcon} />
+                <Text style={[styles.benefitText, { color: theme.colors.text }]}>
+                  Reduced procrastination
+                </Text>
+              </View>
             </View>
             
-            <View style={styles.statItem}>
-              <Text style={[styles.statValue, { color: theme.colors.primary }]}>
-                {selectedTask.totalPomodoroTime || 0}
-              </Text>
-              <Text style={[styles.statLabel, { color: theme.colors.secondary }]}>
-                Minutes
-              </Text>
-            </View>
+            <Text style={[styles.infoSubtitle, { color: theme.colors.text }]}>
+              Why use it?
+            </Text>
+            
+            <Text style={[styles.infoText, { color: theme.colors.text }]}>
+              The technique works with your brain's natural rhythms, leveraging focused work periods and regular breaks to maintain high productivity. By breaking work into manageable chunks, you can avoid burnout and maintain a sustainable pace throughout the day.
+            </Text>
           </View>
         </View>
-      ) : null}
+      </ScrollView>
+      
+      {/* Task Selector Modal */}
+      <Modal
+        visible={showTaskSelector}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowTaskSelector(false)}
+      >
+        <View style={[
+          styles.modalOverlay,
+          { backgroundColor: isDark ? 'rgba(0,0,0,0.9)' : 'rgba(255,255,255,0.9)' }
+        ]}>
+          <View style={[
+            styles.taskSelectorModal,
+            { 
+              backgroundColor: isDark ? '#222' : '#fff',
+              shadowColor: isDark ? '#000' : '#888'
+            }
+          ]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
+                Select a Task
+              </Text>
+              
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => setShowTaskSelector(false)}
+              >
+                <MaterialIcons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.taskOptionsContainer}>
+              {renderTaskOptions()}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
       
       {/* Interruption Dialog */}
       <Modal
@@ -420,54 +684,68 @@ const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
         animationType="fade"
         onRequestClose={() => setShowInterruptionDialog(false)}
       >
-        <View style={styles.modalOverlay}>
+        <View style={[
+          styles.modalOverlay,
+          { backgroundColor: isDark ? 'rgba(0,0,0,0.9)' : 'rgba(255,255,255,0.9)' }
+        ]}>
           <View style={[
-            styles.dialogContainer,
-            { backgroundColor: isDark ? '#333' : '#fff' }
+            styles.interruptionDialog,
+            { 
+              backgroundColor: isDark ? '#222' : '#fff',
+              shadowColor: isDark ? '#000' : '#888'
+            }
           ]}>
             <Text style={[styles.dialogTitle, { color: theme.colors.text }]}>
-              Stop Session
-            </Text>
-            <Text style={[styles.dialogText, { color: theme.colors.text }]}>
-              Are you sure you want to stop this Pomodoro session? Any time tracked will still be saved.
+              Stop Pomodoro Session?
             </Text>
             
-            <TextInput
-              style={[
-                styles.noteInput,
-                { 
-                  backgroundColor: isDark ? '#444' : '#f5f5f5',
-                  color: theme.colors.text,
-                  borderColor: isDark ? '#555' : '#ddd'
-                }
-              ]}
-              placeholder="Add a note about the interruption (optional)"
-              placeholderTextColor={isDark ? '#aaa' : '#999'}
-              value={interruptionNote}
-              onChangeText={setInterruptionNote}
-              multiline
-            />
+            <Text style={[styles.dialogMessage, { color: theme.colors.secondary || '#666' }]}>
+              {isActive ? 
+                'Your focus session is still running. Why are you stopping?' : 
+                'Do you want to close the timer?'}
+            </Text>
             
-            <View style={styles.dialogButtons}>
+            {isActive && (
+              <TextInput
+                style={[
+                  styles.interruptionInput,
+                  { 
+                    backgroundColor: isDark ? '#333' : '#f5f5f5',
+                    color: theme.colors.text,
+                    borderColor: isDark ? '#444' : '#ddd'
+                  }
+                ]}
+                placeholder="Note (optional)"
+                placeholderTextColor={theme.colors.placeholder || '#999'}
+                value={interruptionNote}
+                onChangeText={setInterruptionNote}
+                multiline
+              />
+            )}
+            
+            <View style={styles.dialogActions}>
               <TouchableOpacity
                 style={[
                   styles.dialogButton,
-                  { borderColor: theme.colors.text }
+                  { backgroundColor: isDark ? '#333' : '#f5f5f5' }
                 ]}
                 onPress={() => setShowInterruptionDialog(false)}
               >
-                <Text style={{ color: theme.colors.text }}>Cancel</Text>
+                <Text style={[styles.dialogButtonText, { color: theme.colors.text }]}>
+                  Cancel
+                </Text>
               </TouchableOpacity>
               
               <TouchableOpacity
                 style={[
                   styles.dialogButton,
-                  styles.dialogConfirmButton,
                   { backgroundColor: theme.colors.error }
                 ]}
-                onPress={handleConfirmStop}
+                onPress={isActive ? handleConfirmStop : handleClose}
               >
-                <Text style={[styles.dialogConfirmText, { color: '#fff' }]}>Stop Session</Text>
+                <Text style={[styles.dialogButtonText, { color: '#fff' }]}>
+                  {isActive ? 'Stop' : 'Close'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -478,10 +756,28 @@ const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
 };
 
 const styles = StyleSheet.create({
-  timerContainer: {
+  container: {
     flex: 1,
-    padding: 20,
+    width: '100%',
+  },
+  scrollContainer: {
+    flexGrow: 1,
+    paddingBottom: 30,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  pomodoroContainer: {
+    width: '100%',
     borderRadius: 16,
+    padding: 16,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   header: {
     flexDirection: 'row',
@@ -489,137 +785,141 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
-  title: {
-    fontSize: 24,
+  headerTitle: {
+    fontSize: 22,
     fontWeight: 'bold',
+  },
+  headerControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconButton: {
+    padding: 8,
+    marginLeft: 8,
   },
   taskSelector: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     padding: 12,
     borderRadius: 8,
     marginBottom: 20,
+  },
+  taskSelectorIcon: {
+    marginRight: 8,
   },
   taskSelectorText: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  taskSelectorContainer: {
-    marginBottom: 20,
-  },
-  taskSelectorHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  taskSelectorTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  closeTaskSelector: {
-    padding: 4,
-  },
-  taskOptionsList: {
-    maxHeight: 200,
-  },
-  emptyTasksContainer: {
-    padding: 16,
-    alignItems: 'center',
-  },
-  emptyTasksText: {
-    textAlign: 'center',
-    fontSize: 16,
-  },
-  taskOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  priorityIndicator: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 12,
-  },
-  taskOptionContent: {
     flex: 1,
-  },
-  taskTitle: {
     fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 4,
   },
-  pomodoroCount: {
-    fontSize: 12,
-  },
-  timerDisplay: {
+  timerContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 24,
-    borderRadius: 12,
-    marginBottom: 24,
-    borderWidth: 2,
+    marginVertical: 16,
   },
-  timerType: {
+  circularProgress: {
+    width: 250,
+    height: 250,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  circleBackground: {
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    borderWidth: 10,
+    position: 'absolute',
+  },
+  circleProgress: {
+    position: 'absolute',
+  },
+  timerTextContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timerTypeText: {
     fontSize: 18,
-    fontWeight: '500',
-    marginBottom: 8,
+    marginBottom: 4,
   },
-  timer: {
-    fontSize: 64,
+  timerText: {
+    fontSize: 48,
     fontWeight: 'bold',
     fontVariant: ['tabular-nums'],
+    letterSpacing: 2,
   },
-  sessionCount: {
+  sessionCountText: {
     fontSize: 14,
-    marginTop: 8,
+    marginTop: 4,
   },
-  controls: {
+  controlsContainer: {
+    marginTop: 24,
+    marginBottom: 16,
+  },
+  activeControls: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 24,
+    alignItems: 'center',
+    paddingHorizontal: 16,
   },
   controlButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  mainControlButton: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+  },
+  startButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 12,
     paddingHorizontal: 24,
-    borderRadius: 8,
-    minWidth: 120,
-    alignItems: 'center',
+    borderRadius: 30,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  primaryButton: {
-    paddingVertical: 16,
-    minWidth: 180,
-  },
-  controlButtonText: {
-    color: 'white',
-    fontSize: 16,
+  startButtonText: {
+    color: '#fff',
+    fontSize: 18,
     fontWeight: 'bold',
+    marginLeft: 8,
   },
-  statsSection: {
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
+  statsContainer: {
+    marginTop: 16,
     paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
   },
   statsTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 12,
   },
-  statsGrid: {
+  statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
   },
-  statItem: {
+  statCard: {
+    padding: 16,
+    borderRadius: 8,
     alignItems: 'center',
+    width: '45%',
   },
   statValue: {
     fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 4,
+    marginVertical: 4,
   },
   statLabel: {
     fontSize: 14,
@@ -628,54 +928,153 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 16,
   },
-  dialogContainer: {
-    width: '80%',
+  taskSelectorModal: {
+    width: '100%',
     maxWidth: 400,
-    borderRadius: 12,
-    padding: 20,
+    borderRadius: 16,
+    padding: 16,
+    maxHeight: '80%',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
     elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+  },
+  taskOptionsContainer: {
+    maxHeight: 400,
+  },
+  taskOption: {
+    flexDirection: 'row',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  priorityIndicator: {
+    width: 4,
+    height: '100%',
+    borderRadius: 2,
+    marginRight: 8,
+  },
+  taskOptionContent: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  taskTitle: {
+    fontSize: 16,
+    flex: 1,
+  },
+  selectedIndicator: {
+    marginLeft: 8,
+  },
+  emptyTasksContainer: {
+    padding: 16,
+    alignItems: 'center',
+  },
+  emptyTasksText: {
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  interruptionDialog: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 16,
+    padding: 16,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   dialogTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  dialogText: {
+  dialogMessage: {
     fontSize: 16,
     marginBottom: 16,
   },
-  noteInput: {
+  interruptionInput: {
     borderWidth: 1,
     borderRadius: 8,
     padding: 12,
-    minHeight: 80,
-    textAlignVertical: 'top',
     marginBottom: 16,
+    height: 100,
+    textAlignVertical: 'top',
   },
-  dialogButtons: {
+  dialogActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
   },
   dialogButton: {
-    padding: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     borderRadius: 8,
-    minWidth: 100,
-    alignItems: 'center',
     marginLeft: 8,
-    borderWidth: 1,
   },
-  dialogConfirmButton: {
-    borderWidth: 0,
+  dialogButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
   },
-  dialogConfirmText: {
-    color: 'white',
+  infoContainer: {
+    marginTop: 20,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+  },
+  infoTitle: {
+    fontSize: 18,
     fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  infoSubtitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  infoText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  benefitsList: {
+    marginLeft: 8,
+  },
+  benefitItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  benefitIcon: {
+    marginRight: 8,
+  },
+  benefitText: {
+    fontSize: 14,
+    lineHeight: 20,
   },
 });
 

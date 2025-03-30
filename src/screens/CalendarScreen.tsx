@@ -1,127 +1,98 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Calendar } from 'react-native-calendars';
-import { Text, useTheme, Portal, Modal } from 'react-native-paper';
-import { format } from 'date-fns';
-import TaskList from '../components/TaskList';
+import { Portal, Modal, useTheme } from 'react-native-paper';
+import { useNavigation } from '@react-navigation/native';
+import CalendarView from '../components/CalendarView';
+import TaskForm from '../components/TaskForm';
 import TaskDetail from '../components/TaskDetail';
-import databaseService from '../database/DatabaseService';
-
-type MarkedDates = {
-  [date: string]: {
-    marked: boolean;
-    dotColor?: string;
-  };
-};
+import { useTaskStore } from '../stores/taskStore';
 
 export default function CalendarScreen() {
-  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [markedDates, setMarkedDates] = useState<MarkedDates>({});
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const navigation = useNavigation();
   const theme = useTheme();
+  const { createTask, toggleTaskCompletion, fetchTasks } = useTaskStore();
+  
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [showTaskForm, setShowTaskForm] = useState(false);
+  const [selectedDate, setSelectedDate] = useState('');
 
-  useEffect(() => {
-    loadTaskDates();
-  }, []);
-
-  const loadTaskDates = async () => {
+  // Handle task completion toggle
+  const handleToggleCompletion = async (taskId: string) => {
+    console.log('CalendarScreen - handleToggleCompletion called with taskId:', taskId);
     try {
-      const result = await databaseService.executeSql(`
-        SELECT dueDate, priority FROM tasks
-        WHERE completed = 0
-        GROUP BY date(dueDate)
-      `);
-
-      const marked: MarkedDates = {};
-      result.rows._array.forEach((row: { dueDate: string; priority: string }) => {
-        const date = format(new Date(row.dueDate), 'yyyy-MM-dd');
-        marked[date] = {
-          marked: true,
-          dotColor: row.priority === 'high' ? '#EF4444' :
-                    row.priority === 'medium' ? '#F59E0B' : '#10B981'
-        };
-      });
-
-      setMarkedDates(marked);
+      // Call the toggleTaskCompletion function directly from the store
+      const result = await toggleTaskCompletion(taskId);
+      console.log('CalendarScreen - toggleTaskCompletion result:', result);
+      
+      // Refresh tasks to update the UI
+      if (result) {
+        await fetchTasks();
+      }
     } catch (error) {
-      console.error('Error loading task dates:', error);
+      console.error('CalendarScreen - Error toggling task completion:', error);
     }
   };
-
-  const handleDayPress = (day: { dateString: string }) => {
-    setSelectedDate(day.dateString);
+  
+  // Handle add task for a specific date
+  const handleAddTask = (date: string) => {
+    setSelectedDate(date);
+    setShowTaskForm(true);
   };
-
-  const handleTaskPress = (taskId: string) => {
-    setSelectedTaskId(taskId);
+  
+  // Handle saving a new task
+  const handleSaveTask = async (taskData: any) => {
+    // If we have a selected date, use it for the task
+    if (selectedDate) {
+      taskData.dueDate = new Date(selectedDate);
+    }
+    
+    await createTask(taskData);
+    setShowTaskForm(false);
   };
-
+  
   return (
     <View style={styles.container}>
-      <Calendar
-        current={selectedDate}
-        onDayPress={handleDayPress}
-        markedDates={{
-          ...markedDates,
-          [selectedDate]: {
-            ...(markedDates[selectedDate] || {}),
-            selected: true,
-            selectedColor: theme.colors.primary,
-          },
-        }}
-        theme={{
-          backgroundColor: theme.colors.background,
-          calendarBackground: theme.colors.background,
-          textSectionTitleColor: theme.colors.primary,
-          selectedDayBackgroundColor: theme.colors.primary,
-          selectedDayTextColor: '#ffffff',
-          todayTextColor: theme.colors.primary,
-          dayTextColor: theme.colors.onBackground,
-          textDisabledColor: theme.colors.outline,
-          dotColor: theme.colors.primary,
-          monthTextColor: theme.colors.onBackground,
-          arrowColor: theme.colors.primary,
-          indicatorColor: theme.colors.primary,
-        }}
+      <CalendarView 
+        onTaskPress={setSelectedTaskId}
+        onToggleCompletion={handleToggleCompletion}
+        onAddTask={handleAddTask}
       />
-
-      <View style={styles.taskList}>
-        <Text variant="titleMedium" style={styles.dateHeader}>
-          Tasks for {format(new Date(selectedDate), 'MMMM d, yyyy')}
-        </Text>
-        
-        <TaskList
-          onTaskPress={handleTaskPress}
-          filter={{
-            status: 'pending',
-          }}
-          sortBy="deadline"
-          sortOrder="asc"
-        />
-      </View>
-
+      
       <Portal>
+        {/* Task detail modal */}
         {selectedTaskId && (
           <Modal
-            visible={true}
+            visible={!!selectedTaskId}
             onDismiss={() => setSelectedTaskId(null)}
-            contentContainerStyle={styles.modalContent}
+            contentContainerStyle={[styles.modalContent, { backgroundColor: theme.colors.background }]}
           >
             <TaskDetail
               taskId={selectedTaskId}
               onEdit={() => {
-                // Handle edit navigation
+                navigation.navigate('EditTask', { taskId: selectedTaskId });
                 setSelectedTaskId(null);
               }}
               onDelete={() => {
                 // Handle delete
                 setSelectedTaskId(null);
-                loadTaskDates(); // Refresh calendar markers
               }}
               onBack={() => setSelectedTaskId(null)}
             />
           </Modal>
         )}
+        
+        {/* Task form modal */}
+        <Modal
+          visible={showTaskForm}
+          onDismiss={() => setShowTaskForm(false)}
+          contentContainerStyle={[styles.modalContent, { backgroundColor: theme.colors.background }]}
+        >
+          <TaskForm
+            onClose={() => setShowTaskForm(false)}
+            onSave={handleSaveTask}
+            initialDate={selectedDate ? new Date(selectedDate) : undefined}
+          />
+        </Modal>
       </Portal>
     </View>
   );
@@ -131,17 +102,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  taskList: {
-    flex: 1,
-    padding: 4,
-  },
-  dateHeader: {
-    marginBottom: 16,
-  },
   modalContent: {
-    backgroundColor: 'white',
     margin: 16,
     borderRadius: 8,
+    padding: 16,
     maxHeight: '90%',
   },
 }); 

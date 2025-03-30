@@ -25,11 +25,12 @@ import {
   Portal,
   Modal
 } from 'react-native-paper';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import TaskItem from '../components/TaskItem';
 import InlinePomodoroTimer from '../components/InlinePomodoroTimer';
+import PomodoroTimer from '../components/PomodoroTimer';
 import { format } from 'date-fns';
 import { RootStackParamList } from '../navigation/types';
 import { useDatabase } from '../hooks/useDatabase';
@@ -186,7 +187,7 @@ function EmptyState() {
 
 export const HomeScreen = () => {
   const navigation = useNavigation<HomeScreenNavigationProp>();
-  const { colors, isDark } = useTheme();
+  const { colors, dark: isDark } = useTheme();
   const { tasks, isLoading, fetchTasks } = useTaskStore();
   const [activeTask, setActiveTask] = useState<string | undefined>(undefined);
   const [showPomodoro, setShowPomodoro] = useState(false);
@@ -201,40 +202,39 @@ export const HomeScreen = () => {
 
   // Fetch tasks when component mounts
   useEffect(() => {
-    const loadTasks = async () => {
-      try {
-        await fetchTasks();
-      } catch (error) {
-        console.error('Error loading tasks:', error);
-      }
-    };
     loadTasks();
-  }, [fetchTasks]);
+  }, []);
 
-  // Add focus effect to refresh tasks
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', async () => {
-      try {
-        await fetchTasks();
-      } catch (error) {
-        console.error('Error refreshing tasks:', error);
-      }
-    });
+  // Use useFocusEffect to refresh tasks when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log('HomeScreen focused - refreshing tasks');
+      loadTasks();
+      return () => {}; // Cleanup function
+    }, [])
+  );
 
-    return unsubscribe;
-  }, [navigation, fetchTasks]);
+  // Function to load tasks
+  const loadTasks = async () => {
+    try {
+      console.log('Loading tasks in HomeScreen');
+      await fetchTasks();
+    } catch (error) {
+      console.error('Error loading tasks:', error);
+    }
+  };
 
   // Handle pull to refresh
-  const onRefresh = React.useCallback(async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await fetchTasks();
+      await loadTasks();
     } catch (error) {
       console.error('Error refreshing tasks:', error);
     } finally {
       setRefreshing(false);
     }
-  }, [fetchTasks]);
+  }, []);
   
   // Check if user is returning and get user info
   useEffect(() => {
@@ -276,6 +276,15 @@ export const HomeScreen = () => {
     return taskDate > today;
   });
   
+  // Get all completed tasks
+  const allCompletedTasks = tasks.filter(task => task.completed);
+  
+  // Get today's completed tasks (for progress bar)
+  const todayCompletedCount = todayTasks.filter(task => task.completed).length;
+  
+  // Calculate progress with a default value of 0
+  const progress = todayTasks.length > 0 ? todayCompletedCount / todayTasks.length : 0;
+  
   // Auto-hide welcome section after 2 seconds
   useEffect(() => {
     if (showWelcome) {
@@ -302,10 +311,6 @@ export const HomeScreen = () => {
       setShowWelcome(false);
     });
   };
-  
-  // Calculate progress with a default value of 0
-  const completedTasks = todayTasks.filter(task => task.completed).length;
-  const progress = todayTasks.length > 0 ? completedTasks / todayTasks.length : 0;
   
   // Update progress animation when tasks change
   useEffect(() => {
@@ -368,9 +373,10 @@ export const HomeScreen = () => {
            taskDate.getFullYear() === today.getFullYear();
   }) || [];
 
-  // Add navigation to Tasks tab
+  // Fix navigation to Tasks
   const navigateToTasks = () => {
-    navigation.navigate('Tasks');
+    // @ts-ignore - Ignore the type error for now as this navigation pattern works at runtime
+    navigation.navigate('MainTabs', { screen: 'Tasks' });
   };
   
   return (
@@ -441,7 +447,7 @@ export const HomeScreen = () => {
                     Completed
                   </Text>
                   <Text style={[styles.statsValue, { color: colors.onPrimaryContainer }]}>
-                    {(completedTasks || 0).toString()}
+                    {(allCompletedTasks.length || 0).toString()}
                   </Text>
                 </View>
               </Surface>
@@ -449,7 +455,7 @@ export const HomeScreen = () => {
               <Surface style={[styles.statsCard, { backgroundColor: colors.primaryContainer }]}>
                 <View style={styles.statsContent}>
                   <Text 
-          style={[
+                    style={[
                       styles.statsLabel, 
                       { 
                         color: colors.onPrimaryContainer,
@@ -465,14 +471,14 @@ export const HomeScreen = () => {
                   </Text>
                 </View>
               </Surface>
-          </View>
+            </View>
 
             {/* Quick Actions */}
             <View style={styles.quickActions}>
               <QuickActionButton
                 icon="add-task"
                 label="New Task"
-            color={colors.primary}
+                color={colors.primary}
                 onPress={() => navigation.navigate('CreateTask')}
               />
               <QuickActionButton
@@ -523,31 +529,28 @@ export const HomeScreen = () => {
             />
           )}
 
-          {completedTasks.length > 0 && (
+          {allCompletedTasks.length > 0 && (
             <TaskSection
               title="Completed"
-              tasks={completedTasks}
+              tasks={allCompletedTasks}
               onTaskPress={navigateToTask}
               onSeeAll={navigateToTasks}
-              color={colors.primary}
+              color={colors.success}
             />
           )}
         </View>
       </ScrollView>
       
-      {/* Pomodoro Timer Modal */}
-      <Portal>
-        <Modal
-          visible={showPomodoro}
-          onDismiss={() => setShowPomodoro(false)}
-          contentContainerStyle={styles.modalContent}
-        >
-        <InlinePomodoroTimer
-            taskId={activeTask}
+      {/* Pomodoro Timer */}
+      {showPomodoro && (
+        <View style={styles.pomodoroOverlay}>
+          <PomodoroTimer
+            initialTaskId={activeTask}
             onClose={() => setShowPomodoro(false)}
-        />
-        </Modal>
-      </Portal>
+            showCloseButton={true}
+          />
+        </View>
+      )}
     </View>
   );
 };
@@ -657,10 +660,22 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   modalContent: {
+    margin: 16,
     backgroundColor: 'white',
-    padding: 20,
-    margin: 20,
-    borderRadius: 12,
+    borderRadius: 8,
+    padding: 16,
+    elevation: 4,
+  },
+  pomodoroOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    zIndex: 999,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   emptyState: {
     flex: 1,

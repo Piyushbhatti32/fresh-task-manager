@@ -45,6 +45,18 @@ export default function TaskList({
   const [loading, setLoading] = useState(true);
   const [errorState, setErrorState] = useState<string | null>(null);
 
+  // Log how many tasks were provided through props
+  useEffect(() => {
+    if (providedTasks) {
+      console.log(`TaskList received ${providedTasks.length} tasks from props`);
+      providedTasks.forEach((task, index) => {
+        console.log(`Task ${index + 1}: ID=${task.id}, Title=${task.title}, Completed=${task.completed}`);
+      });
+    } else {
+      console.log('TaskList: No tasks provided through props, will load from database');
+    }
+  }, [providedTasks]);
+
   useEffect(() => {
     loadTasks();
   }, [filter, sortBy, sortOrder]);
@@ -138,15 +150,23 @@ export default function TaskList({
   return (
     <FlatList
       data={providedTasks || tasks}
-      keyExtractor={(item) => item.id}
+      keyExtractor={(item) => item?.id || `task-${Math.random().toString(36)}`}
       renderItem={({ item }) => (
         <TaskItem
           task={item}
           onPress={() => onTaskPress(item.id)}
           onStartPomodoro={onStartPomodoro ? (taskId) => onStartPomodoro(taskId) : undefined}
-          onToggle={onToggle ? () => onToggle(item.id) : undefined}
+          onToggle={onToggle ? () => {
+            console.log('Toggling task completion from TaskList:', item.id);
+            onToggle(item.id);
+          } : undefined}
         />
       )}
+      initialNumToRender={20}
+      maxToRenderPerBatch={20}
+      windowSize={21}
+      onEndReachedThreshold={0.5}
+      onEndReached={() => console.log('Reached end of list')}
       style={styles.list}
       contentContainerStyle={styles.content}
     />

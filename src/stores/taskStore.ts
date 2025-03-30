@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Task, TaskFilter } from '../types/Task';
+import { Task, TaskFilter, TaskTemplate, SubTask, Priority } from '../types/Task';
 import taskRepository from '../database/TaskRepository';
 import databaseService from '../database/DatabaseService';
 
@@ -17,6 +17,7 @@ interface TaskState {
   tasks: Task[];
   isLoading: boolean;
   error: string | null;
+  templates: TaskTemplate[];
   
   // Pomodoro features
   currentPomodoro: {
@@ -38,6 +39,7 @@ interface TaskState {
   // Task status actions
   markTaskAsCompleted: (id: string) => Promise<boolean>;
   markTaskAsInProgress: (id: string) => Promise<boolean>;
+  toggleTaskCompletion: (id: string) => Promise<boolean>;
   
   // Subtask actions
   addSubtask: (taskId: string, title: string) => Promise<Task | null>;
@@ -53,323 +55,261 @@ interface TaskState {
   skipBreak: () => void;
   updatePomodoroSettings: (settings: PomodoroSettings) => void;
   
-  // Add function to create default tasks
+  // Template actions
+  fetchTemplates: () => Promise<void>;
+  addTemplate: (template: Omit<TaskTemplate, 'id' | 'createdAt'>) => Promise<TaskTemplate>;
+  updateTemplate: (id: string, template: Partial<TaskTemplate>) => Promise<void>;
+  deleteTemplate: (id: string) => Promise<void>;
+  createTaskFromTemplate: (template: TaskTemplate) => Promise<Task>;
+  
+  // Categories
+  categories: string[];
+  getCategories: () => string[];
+  
+  // Default tasks
   createDefaultTasks: () => Promise<void>;
 }
 
-// Mock data for now
-const mockTasks: Task[] = [
-  {
-    id: '1',
-    title: 'Complete React Native project',
-    description: 'Finish implementing all screens and components',
-    dueDate: new Date(Date.now() + 86400000 * 7).toISOString(), // 7 days from now
-    completed: false,
-    priority: 'high',
-    categoryId: '1',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: '2',
-    title: 'Research SQLite integration',
-    description: 'Learn how to use SQLite effectively with React Native',
-    dueDate: new Date(Date.now() + 86400000 * 2).toISOString(), // 2 days from now
-    completed: false,
-    priority: 'medium',
-    categoryId: '2',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: '3',
-    title: 'Grocery shopping',
-    description: 'Buy milk, eggs, bread, and vegetables',
-    dueDate: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
-    completed: true,
-    priority: 'low',
-    categoryId: '3',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
-
-export const useTaskStore = create<TaskState>((set, get) => ({
+export const useTaskStore = create<TaskState>()((set, get) => ({
   tasks: [],
   isLoading: false,
   error: null,
+  templates: [],
+  categories: [],
   
-  // Initialize Pomodoro state
+  // Pomodoro state
   currentPomodoro: {
     active: false,
     isBreak: false,
-    timeRemaining: 25 * 60, // 25 minutes in seconds
+    timeRemaining: 0,
     sessionId: null,
     currentSessionCount: 0
   },
-  
   pomodoroSettings: {
-    workDuration: 25, // minutes
-    shortBreakDuration: 5, // minutes
-    longBreakDuration: 15, // minutes
+    workDuration: 25,
+    shortBreakDuration: 5,
+    longBreakDuration: 15,
     sessionsUntilLongBreak: 4,
     autoStartNextSession: false,
-    autoStartBreaks: true
+    autoStartBreaks: false
   },
-  
-  // Add function to create default tasks
-  createDefaultTasks: async () => {
-    try {
-      const defaultTasks = [
-        {
-          title: 'Complete React Native project',
-          description: 'Finish implementing all screens and components',
-          dueDate: new Date(Date.now() + 86400000 * 7).toISOString(), // 7 days from now
-          completed: false,
-          priority: 'high',
-          categoryId: '1',
-          progress: 0,
-          subtasks: [],
-          tags: ['work', 'development']
-        },
-        {
-          title: 'Research SQLite integration',
-          description: 'Learn how to use SQLite effectively with React Native',
-          dueDate: new Date(Date.now() + 86400000 * 2).toISOString(), // 2 days from now
-          completed: false,
-          priority: 'medium',
-          categoryId: '2',
-          progress: 0,
-          subtasks: [],
-          tags: ['research', 'development']
-        },
-        {
-          title: 'Grocery shopping',
-          description: 'Buy milk, eggs, bread, and vegetables',
-          dueDate: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
-          completed: false,
-          priority: 'low',
-          categoryId: '3',
-          progress: 0,
-          subtasks: [],
-          tags: ['personal', 'shopping']
-        },
-        {
-          title: 'Team meeting',
-          description: 'Weekly sync with the development team',
-          dueDate: new Date(Date.now() + 3600000).toISOString(), // 1 hour from now
-          completed: false,
-          priority: 'high',
-          categoryId: '1',
-          progress: 0,
-          subtasks: [],
-          tags: ['work', 'meeting']
-        },
-        {
-          title: 'Exercise',
-          description: '30 minutes of cardio and strength training',
-          dueDate: new Date(Date.now() + 7200000).toISOString(), // 2 hours from now
-          completed: false,
-          priority: 'medium',
-          categoryId: '3',
-          progress: 0,
-          subtasks: [],
-          tags: ['personal', 'health']
-        }
-      ];
 
-      for (const task of defaultTasks) {
-        await get().addTask(task);
-      }
-
-      // Fetch all tasks after creating defaults
-      await get().fetchTasks();
-    } catch (error) {
-      console.error('Error creating default tasks:', error);
-    }
-  },
-  
+  // Task actions
   fetchTasks: async (filter?: TaskFilter) => {
-    set({ isLoading: true, error: null });
     try {
-      // Initialize database if it hasn't been initialized yet
-      await databaseService.initDatabase();
+      set({ isLoading: true });
+      // Convert TaskFilter to repository filter format
+      const repoFilter = filter ? {
+        completed: filter.status === 'completed' ? true : filter.status === 'pending' ? false : undefined,
+        category: filter.category === 'all' ? undefined : filter.category,
+        priority: filter.priority === 'all' ? undefined : filter.priority
+      } : undefined;
       
-      // Check if we need to create default tasks
-      const existingTasks = await taskRepository.getTasks();
-      if (existingTasks.length === 0) {
-        await get().createDefaultTasks();
-      }
+      console.log('TaskStore - Fetching tasks with filter:', JSON.stringify(repoFilter));
       
-      // Fetch from database
-      const tasks = await taskRepository.getTasks({
-        completed: filter?.completed,
-        category: filter?.category,
-        priority: filter?.priority
+      let tasks = await taskRepository.getTasks(repoFilter);
+      console.log(`TaskStore - Fetched ${tasks.length} tasks from the database`);
+      
+      // Fix any tasks with null IDs
+      tasks = tasks.map(task => {
+        if (!task.id) {
+          // Generate a unique ID for tasks that don't have one
+          const newId = `fixed-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          console.log(`Fixing task with null ID: "${task.title}" -> new ID: ${newId}`);
+          return { ...task, id: newId };
+        }
+        return task;
       });
       
-      // Apply client-side filters if provided
-      let filteredTasks = [...tasks];
-      
-      if (filter) {
-        // Apply filters
-        if ('searchText' in filter && filter.searchText) {
-          const searchLower = (filter.searchText as string).toLowerCase();
-          filteredTasks = filteredTasks.filter(task => 
-            task.title.toLowerCase().includes(searchLower) ||
-            (task.description && task.description.toLowerCase().includes(searchLower))
-          );
-        }
-        
-        // Date filtering
-        if ('startDate' in filter && filter.startDate) {
-          const startDate = new Date(filter.startDate as string | number | Date);
-          filteredTasks = filteredTasks.filter(task => {
-            if (!task.dueDate) return false;
-            return new Date(task.dueDate) >= startDate;
-          });
-        }
-        
-        if ('endDate' in filter && filter.endDate) {
-          const endDate = new Date(filter.endDate as string | number | Date);
-          filteredTasks = filteredTasks.filter(task => {
-            if (!task.dueDate) return false;
-            return new Date(task.dueDate) <= endDate;
-          });
-        }
-      }
-      
-      console.log('Fetched tasks:', filteredTasks);
-      set({ tasks: filteredTasks, isLoading: false });
+      set({ tasks, isLoading: false });
     } catch (error) {
-      console.error('Error loading tasks:', error);
-      set({ error: (error as Error).message || 'Unknown error', isLoading: false });
+      console.error('TaskStore - Error fetching tasks:', error);
+      set({ error: error instanceof Error ? error.message : 'Failed to fetch tasks', isLoading: false });
     }
   },
-  
+
   getTaskById: (id: string) => {
     return get().tasks.find(task => task.id === id);
   },
-  
-  addTask: async (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
+
+  addTask: async (task) => {
     try {
-      set({ isLoading: true, error: null });
-      
-      // Validate task data
-      if (!task.title || task.title.trim() === '') {
+      // Ensure task has required fields
+      if (!task.title) {
+        console.error('Cannot create task without a title');
         throw new Error('Task title is required');
       }
-
-      // Create task in database
-      const taskId = await databaseService.createTask({
-        ...task,
-        title: task.title.trim(),
-        description: task.description?.trim() || '',
-        priority: task.priority || 'low',
-        completed: task.completed || false,
-        categoryId: task.categoryId || 'personal',
-        dueDate: task.dueDate || new Date().toISOString(),
-        dueTime: task.dueTime || null,
-        progress: task.progress || 0,
-        recurrence: task.recurrence || null,
-        reminder: task.reminder || null,
-        subtasks: task.subtasks || [],
-        tags: task.tags || [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-
-      // Fetch updated task list
-      await get().fetchTasks();
-
-      return get().getTaskById(taskId);
-    } catch (error) {
-      console.error('Error adding task:', error);
-      set({ error: error instanceof Error ? error.message : 'Failed to add task' });
-      throw error;
-    } finally {
-      set({ isLoading: false });
-    }
-  },
-  
-  updateTask: async (task: Task) => {
-    set({ isLoading: true });
-    try {
-      // Mock update for now - in real app would call API
-      // Temporarily bypass type error by using any
-      const taskId = task.id; // Store id separately to avoid TS errors
-      const updatedTask = await (taskRepository.updateTask as any)(taskId, task);
       
-      if (updatedTask) {
-        set(state => ({
-          tasks: state.tasks.map(t => 
-            t.id === task.id ? (updatedTask as unknown as Task) : t
-          ),
-          isLoading: false
-        }));
+      const taskId = await taskRepository.createTask(task);
+      
+      // Validate that we got a valid ID back
+      if (!taskId) {
+        console.error('Failed to get valid ID from repository when creating task:', task.title);
+        throw new Error('Failed to generate task ID');
       }
       
-      return updatedTask as unknown as Task | undefined;
-    } catch (error) {
-      set({ error: (error as Error).message || 'Unknown error', isLoading: false });
-      throw error;
-    }
-  },
-  
-  deleteTask: async (id: string) => {
-    set({ isLoading: true });
-    try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const newTask: Task = {
+        ...task,
+        id: taskId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
       
-      set(state => ({
-        tasks: state.tasks.filter(task => task.id !== id),
-        isLoading: false
-      }));
+      console.log(`Created new task with ID: ${newTask.id}, Title: ${newTask.title}`);
+      set(state => ({ tasks: [...state.tasks, newTask] }));
+      return newTask;
     } catch (error) {
-      set({ error: (error as Error).message || 'Unknown error', isLoading: false });
+      console.error('Error creating task:', error);
       throw error;
     }
   },
-  
+
+  updateTask: async (task) => {
+    try {
+      const success = await taskRepository.updateTask(parseInt(task.id), task);
+      if (success) {
+        set(state => ({
+          tasks: state.tasks.map(t => t.id === task.id ? task : t)
+        }));
+        return task;
+      }
+      return undefined;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  deleteTask: async (id: string) => {
+    try {
+      const success = await taskRepository.deleteTask(parseInt(id));
+      if (success) {
+        set(state => ({
+          tasks: state.tasks.filter(t => t.id !== id)
+        }));
+      }
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  // Task status actions
   markTaskAsCompleted: async (id: string) => {
     try {
-      const task = get().tasks.find(t => t.id === id);
-      if (!task) return false;
-      
-      const updatedTask = { ...task, completed: true };
-      await get().updateTask(updatedTask);
-      return true;
+      const task = get().getTaskById(id);
+      if (task) {
+        const updatedTask = await get().updateTask({ ...task, completed: true });
+        return !!updatedTask;
+      }
+      return false;
     } catch (error) {
       return false;
     }
   },
-  
+
   markTaskAsInProgress: async (id: string) => {
     try {
-      const task = get().tasks.find(t => t.id === id);
-      if (!task) return false;
-      
-      const updatedTask = { ...task, completed: false };
-      await get().updateTask(updatedTask);
-      return true;
+      const task = get().getTaskById(id);
+      if (task) {
+        const updatedTask = await get().updateTask({ ...task, completed: false });
+        return !!updatedTask;
+      }
+      return false;
     } catch (error) {
       return false;
     }
   },
-  
-  startPomodoro: (taskId) => {
+
+  toggleTaskCompletion: async (id: string) => {
+    try {
+      const task = get().getTaskById(id);
+      if (task) {
+        const updatedTask = await get().updateTask({ ...task, completed: !task.completed });
+        return !!updatedTask;
+      }
+      return false;
+    } catch (error) {
+      return false;
+    }
+  },
+
+  // Subtask actions
+  addSubtask: async (taskId: string, title: string) => {
+    try {
+      const task = get().getTaskById(taskId);
+      if (task) {
+        const newSubtask: SubTask = {
+          id: Date.now().toString(),
+          title,
+          completed: false,
+          createdAt: new Date()
+        };
+        const updatedTask = {
+          ...task,
+          subtasks: [...(task.subtasks || []), newSubtask]
+        };
+        const result = await get().updateTask(updatedTask);
+        return result || null;
+      }
+      return null;
+    } catch (error) {
+      return null;
+    }
+  },
+
+  toggleSubtask: async (taskId: string, subtaskId: string) => {
+    try {
+      const task = get().getTaskById(taskId);
+      if (task && task.subtasks) {
+        const updatedSubtasks = task.subtasks.map(subtask =>
+          subtask.id === subtaskId
+            ? { ...subtask, completed: !subtask.completed }
+            : subtask
+        );
+        const updatedTask = {
+          ...task,
+          subtasks: updatedSubtasks
+        };
+        const result = await get().updateTask(updatedTask);
+        return result || null;
+      }
+      return null;
+    } catch (error) {
+      return null;
+    }
+  },
+
+  deleteSubtask: async (taskId: string, subtaskId: string) => {
+    try {
+      const task = get().getTaskById(taskId);
+      if (task && task.subtasks) {
+        const updatedSubtasks = task.subtasks.filter(
+          subtask => subtask.id !== subtaskId
+        );
+        const updatedTask = {
+          ...task,
+          subtasks: updatedSubtasks
+        };
+        const result = await get().updateTask(updatedTask);
+        return result || null;
+      }
+      return null;
+    } catch (error) {
+      return null;
+    }
+  },
+
+  // Pomodoro actions
+  startPomodoro: (taskId: string) => {
     set(state => ({
       currentPomodoro: {
         ...state.currentPomodoro,
         active: true,
-        isBreak: false,
         sessionId: taskId,
         timeRemaining: state.pomodoroSettings.workDuration * 60
       }
     }));
   },
-  
+
   pausePomodoro: () => {
     set(state => ({
       currentPomodoro: {
@@ -378,7 +318,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       }
     }));
   },
-  
+
   resumePomodoro: () => {
     set(state => ({
       currentPomodoro: {
@@ -387,135 +327,209 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       }
     }));
   },
-  
-  stopPomodoro: (logTime, reason) => {
-    set(state => ({
-      currentPomodoro: {
-        active: false,
-        isBreak: false,
-        timeRemaining: state.pomodoroSettings.workDuration * 60,
-        sessionId: null,
-        currentSessionCount: 0
-      }
-    }));
-  },
-  
-  completePomodoro: () => {
-    const state = get();
-    const taskId = state.currentPomodoro.sessionId;
-    
-    // Start break
+
+  stopPomodoro: (logTime: boolean, reason: string) => {
     set(state => ({
       currentPomodoro: {
         ...state.currentPomodoro,
-        isBreak: true,
-        active: true,
-        timeRemaining: state.currentPomodoro.currentSessionCount >= state.pomodoroSettings.sessionsUntilLongBreak - 1
-          ? state.pomodoroSettings.longBreakDuration * 60
-          : state.pomodoroSettings.shortBreakDuration * 60,
-        currentSessionCount: (state.currentPomodoro.currentSessionCount + 1) % state.pomodoroSettings.sessionsUntilLongBreak
+        active: false,
+        sessionId: null,
+        timeRemaining: 0
       }
     }));
   },
-  
+
+  completePomodoro: () => {
+    set(state => ({
+      currentPomodoro: {
+        ...state.currentPomodoro,
+        active: false,
+        sessionId: null,
+        timeRemaining: 0,
+        currentSessionCount: state.currentPomodoro.currentSessionCount + 1
+      }
+    }));
+  },
+
   skipBreak: () => {
     set(state => ({
       currentPomodoro: {
         ...state.currentPomodoro,
         isBreak: false,
-        active: false,
         timeRemaining: state.pomodoroSettings.workDuration * 60
       }
     }));
   },
-  
-  updatePomodoroSettings: (settings) => {
+
+  updatePomodoroSettings: (settings: PomodoroSettings) => {
     set({ pomodoroSettings: settings });
   },
-  
-  // Add subtask to a task
-  addSubtask: async (taskId, title) => {
+
+  // Template actions
+  fetchTemplates: async () => {
     try {
-      const { tasks } = get();
-      const task = tasks.find(t => t.id === taskId);
+      set({ isLoading: true });
       
-      if (!task) return null;
+      // For now, use mock data if no templates exist
+      const mockTemplates: TaskTemplate[] = [
+        {
+          id: '1',
+          name: 'Daily Standup',
+          title: 'Daily Team Meeting',
+          description: 'Template for daily team standup meetings',
+          priority: 'medium',
+          subtasks: [
+            { title: 'Review yesterday\'s progress' },
+            { title: 'Discuss blockers' },
+            { title: 'Plan today\'s work' }
+          ],
+          createdAt: new Date()
+        },
+        {
+          id: '2',
+          name: 'Bug Fix Process',
+          title: 'Fix Software Bug',
+          description: 'Standard process for addressing software bugs',
+          priority: 'high',
+          subtasks: [
+            { title: 'Reproduce the issue' },
+            { title: 'Check logs and identify cause' },
+            { title: 'Implement fix' },
+            { title: 'Write tests' },
+            { title: 'Create PR' }
+          ],
+          createdAt: new Date(Date.now() - 86400000)
+        },
+        {
+          id: '3',
+          name: 'Weekly Report',
+          title: 'Prepare Weekly Report',
+          description: 'Template for preparing weekly status reports',
+          priority: 'medium',
+          subtasks: [
+            { title: 'Gather metrics and data' },
+            { title: 'Create summary' },
+            { title: 'Add visualizations' },
+            { title: 'Review with team' }
+          ],
+          createdAt: new Date(Date.now() - 172800000)
+        }
+      ];
       
-      const newSubtask = {
-        id: Math.random().toString(),
-        title,
-        completed: false,
+      // In a real app, would load from database
+      set({ templates: mockTemplates, isLoading: false });
+    } catch (error) {
+      console.error('Error fetching templates:', error);
+      set({ isLoading: false, error: error instanceof Error ? error.message : 'Failed to fetch templates' });
+    }
+  },
+
+  addTemplate: async (template) => {
+    try {
+      // Create a new template with ID
+      const newTemplate: TaskTemplate = {
+        ...template,
+        id: Date.now().toString(),
         createdAt: new Date()
       };
       
-      const updatedTask = {
-        ...task,
-        subtasks: [...(task.subtasks || []), newSubtask],
-        updatedAt: new Date().toISOString()
-      };
+      // Add to store
+      set(state => ({ 
+        templates: [...state.templates, newTemplate]
+      }));
       
-      set({
-        tasks: tasks.map(t => t.id === taskId ? updatedTask : t)
-      });
-      
-      return updatedTask;
+      return newTemplate;
     } catch (error) {
-      console.error('Error adding subtask:', error);
-      return null;
+      console.error('Error adding template:', error);
+      throw error;
+    }
+  },
+
+  updateTemplate: async (id, updatedTemplate) => {
+    try {
+      // Update template in store
+      set(state => ({
+        templates: state.templates.map(template => 
+          template.id === id ? { ...template, ...updatedTemplate } : template
+        )
+      }));
+    } catch (error) {
+      console.error('Error updating template:', error);
+      throw error;
     }
   },
   
-  // Toggle subtask completion status
-  toggleSubtask: async (taskId, subtaskId) => {
+  deleteTemplate: async (id) => {
     try {
-      const { tasks } = get();
-      const task = tasks.find(t => t.id === taskId);
-      
-      if (!task || !task.subtasks) return null;
-      
-      const updatedTask = {
-        ...task,
-        subtasks: task.subtasks.map(st => 
-          st.id === subtaskId 
-            ? { ...st, completed: !st.completed, updatedAt: new Date() }
-            : st
-        ),
-        updatedAt: new Date().toISOString()
-      };
-      
-      set({
-        tasks: tasks.map(t => t.id === taskId ? updatedTask : t)
-      });
-      
-      return updatedTask;
+      // Delete template from store
+      set(state => ({
+        templates: state.templates.filter(template => template.id !== id)
+      }));
     } catch (error) {
-      console.error('Error toggling subtask:', error);
-      return null;
+      console.error('Error deleting template:', error);
+      throw error;
     }
   },
   
-  // Delete a subtask
-  deleteSubtask: async (taskId, subtaskId) => {
+  createTaskFromTemplate: async (template) => {
     try {
-      const { tasks } = get();
-      const task = tasks.find(t => t.id === taskId);
+      const { addTask } = get();
       
-      if (!task || !task.subtasks) return null;
+      // Create subtasks with required properties
+      const subtasks: SubTask[] = (template.subtasks || []).map(subtask => ({
+        ...subtask,
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        completed: false,
+        createdAt: new Date()
+      }));
       
-      const updatedTask = {
-        ...task,
-        subtasks: task.subtasks.filter(st => st.id !== subtaskId),
-        updatedAt: new Date().toISOString()
+      // Create a new task from template
+      const newTask = {
+        title: template.title,
+        description: template.description || '',
+        priority: template.priority || 'medium',
+        dueDate: template.dueTimeOffset 
+          ? new Date(Date.now() + template.dueTimeOffset * 86400000).toISOString() 
+          : new Date(Date.now() + 86400000).toISOString(), // Default to tomorrow
+        completed: false,
+        subtasks,
+        categoryId: template.categoryId
       };
       
-      set({
-        tasks: tasks.map(t => t.id === taskId ? updatedTask : t)
-      });
-      
-      return updatedTask;
+      // Add task using existing addTask method
+      return await addTask(newTask);
     } catch (error) {
-      console.error('Error deleting subtask:', error);
-      return null;
+      console.error('Error creating task from template:', error);
+      throw error;
+    }
+  },
+
+  // Categories
+  getCategories: () => get().categories,
+
+  // Default tasks
+  createDefaultTasks: async () => {
+    try {
+      const defaultTasks = [
+        {
+          title: 'Welcome to Task Manager!',
+          description: 'This is your first task. Try completing it!',
+          priority: 'medium' as Priority,
+          completed: false
+        },
+        {
+          title: 'Create a new task',
+          description: 'Click the + button to create a new task',
+          priority: 'low' as Priority,
+          completed: false
+        }
+      ];
+
+      for (const task of defaultTasks) {
+        await get().addTask(task);
+      }
+    } catch (error) {
+      console.error('Error creating default tasks:', error);
     }
   }
 })); 

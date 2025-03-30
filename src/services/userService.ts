@@ -6,7 +6,7 @@ import NetInfo from '@react-native-community/netinfo';
 
 const MAX_RETRIES = 1;
 const RETRY_DELAY = 500; // 500ms
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes (increased from 5 minutes)
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -70,58 +70,54 @@ export const userService = {
   },
 
   async getUserProfile(uid: string): Promise<UserProfile | null> {
-    await ensureFirestoreInitialized();
-    // Check memory cache first
+    if (!uid) {
+      console.error('getUserProfile called with invalid uid');
+      return null;
+    }
+    
+    // Check memory cache first before initializing Firestore
     const cachedProfile = memoryCache.get(uid);
     if (cachedProfile && isCacheValid(uid)) {
+      console.log('Using cached profile for user:', uid);
       return cachedProfile;
     }
-
-    const userRef = doc(db, 'users', uid);
     
     try {
-      // Try to get from Firestore
-      const userDoc = await getDoc(userRef);
-      if (userDoc.exists()) {
+      await ensureFirestoreInitialized();
+      const userRef = doc(db, 'users', uid);
+      
+      // Try to get from Firestore with timeout
+      const userDoc = await Promise.race([
+        getDoc(userRef),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)) // 5 second timeout
+      ]);
+      
+      if (userDoc && 'exists' in userDoc && userDoc.exists()) {
         const profile = userDoc.data() as UserProfile;
-        // Update cache with expiry
+        // Update cache with longer expiry
         memoryCache.set(uid, profile);
         cacheExpiry.set(uid, Date.now() + CACHE_DURATION);
         return profile;
       }
       
-      // If not in Firestore, check if we have a valid cached profile
+      // If not in Firestore but in cache, use cache
       if (cachedProfile) {
         return cachedProfile;
       }
       
+      // No profile found, return null
       return null;
     } catch (error: any) {
       console.error('Error getting user profile:', error);
-      if (error.code === 'unavailable' || error.code === 'failed-precondition') {
-        // If offline, return cached data if available
-        console.log('Device is offline, using cached data');
-        if (cachedProfile) {
-          return cachedProfile;
-        }
+      
+      // Return cached profile if available, even if expired
+      if (cachedProfile) {
+        return cachedProfile;
       }
+      
+      // Return null on error
+      return null;
     }
-
-    // Return a default profile if offline or error
-    return {
-      uid,
-      email: 'guest@example.com',
-      displayName: 'Guest User',
-      photoURL: null,
-      createdAt: new Date(),
-      lastLogin: new Date(),
-      isAnonymous: true,
-      settings: {
-        theme: 'system',
-        notifications: true,
-        language: 'en'
-      }
-    };
   },
 
   async updateUserProfile(uid: string, data: Partial<UserProfile>): Promise<void> {
@@ -221,5 +217,19 @@ export const userService = {
       }
       return true; // Default to true if error
     }
+  }
+};
+
+// Add a function to preload user profile in background
+export const preloadUserProfile = async (uid: string): Promise<void> => {
+  try {
+    if (memoryCache.has(uid) && isCacheValid(uid)) {
+      return; // Already in cache
+    }
+    const userProfile = await userService.getUserProfile(uid);
+    console.log('Profile preloaded successfully for user:', uid);
+  } catch (error) {
+    console.error('Error preloading profile:', error);
+    // Silently fail on preload
   }
 }; 

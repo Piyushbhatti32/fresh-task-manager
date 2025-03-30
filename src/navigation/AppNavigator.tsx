@@ -23,6 +23,9 @@ import EditTaskScreen from '../screens/EditTaskScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import CompletedScreen from '../screens/CompletedScreen';
 import CreateGroupScreen from '../screens/CreateGroupScreen';
+import TemplatesScreen from '../screens/TemplatesScreen';
+import CreateTemplateScreen from '../screens/CreateTemplateScreen';
+import TemplateDetailScreen from '../screens/TemplateDetailScreen';
 
 // Import types
 import { RootStackParamList, MainTabsParamList } from './types';
@@ -37,7 +40,7 @@ function FocusScreen() {
   return (
     <View style={{ flex: 1 }}>
       <PomodoroTimer 
-        isVisible={true} 
+        showCloseButton={false}
         onClose={() => {}} 
         initialTaskId={undefined} 
       />
@@ -45,14 +48,15 @@ function FocusScreen() {
   );
 }
 
-// Templates Screen
-function TemplatesScreen() {
+// Templates Screen (internal version - not used)
+// Remove or comment out this function since we're importing the real TemplatesScreen
+/* function TemplatesScreen() {
   return (
     <View style={{ flex: 1, padding: 16 }}>
       <TemplateList onSelectTemplate={() => {}} />
     </View>
   );
-}
+} */
 
 // Create navigators
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -284,6 +288,22 @@ function AppNavigator() {
         name="Profile" 
         component={ProfileScreen}
         options={{ title: 'Profile' }}
+      />
+      <Stack.Screen 
+        name="CreateTemplate" 
+        component={CreateTemplateScreen} 
+        options={{ 
+          title: 'Create Template',
+          headerShown: true 
+        }} 
+      />
+      <Stack.Screen 
+        name="TemplateDetail" 
+        component={TemplateDetailScreen} 
+        options={{ 
+          title: 'Template Details',
+          headerShown: true 
+        }} 
       />
     </Stack.Navigator>
   );

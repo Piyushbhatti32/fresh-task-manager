@@ -25,17 +25,27 @@ export default function AnimatedWelcome({ userName = 'there', onFinish }: Animat
   // Animation values
   const titleOpacity = useRef(new Animated.Value(0)).current;
   const subtitleOpacity = useRef(new Animated.Value(0)).current;
-  const iconPosition = useRef(new Animated.Value(-50)).current;
+  const iconOpacity = useRef(new Animated.Value(0)).current;
   const bounceAnim = useRef(new Animated.Value(0)).current;
   const fadeOutAnim = useRef(new Animated.Value(1)).current;
   const buttonScale = useRef(new Animated.Value(1)).current;
   const buttonOpacity = useRef(new Animated.Value(0)).current;
-  const slideUpAnim = useRef(new Animated.Value(50)).current;
+  const slideUpAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    // Make sure animations start from a consistent position
+    slideUpAnim.setValue(0); // Start from center, not below
+    titleOpacity.setValue(0);
+    subtitleOpacity.setValue(0);
+    iconOpacity.setValue(0);
+    bounceAnim.setValue(0);
+    fadeOutAnim.setValue(1);
+    buttonScale.setValue(1);
+    buttonOpacity.setValue(0);
+
     // Sequential animations
     Animated.sequence([
-      // Slide up from bottom
+      // Slide up from bottom (now it's already centered)
       Animated.spring(slideUpAnim, {
         toValue: 0,
         friction: 8,
@@ -57,11 +67,10 @@ export default function AnimatedWelcome({ userName = 'there', onFinish }: Animat
         useNativeDriver: true,
       }),
       
-      // Icon slide in with bounce effect
-      Animated.spring(iconPosition, {
-        toValue: 0,
-        friction: 6,
-        tension: 40,
+      // Icons fade in
+      Animated.timing(iconOpacity, {
+        toValue: 1,
+        duration: 800,
         useNativeDriver: true,
       }),
 
@@ -165,8 +174,8 @@ export default function AnimatedWelcome({ userName = 'there', onFinish }: Animat
               { 
                 backgroundColor: theme.colors.primary + '20',
                 borderColor: theme.colors.primary + '50',
+                opacity: iconOpacity,
                 transform: [
-                  { translateX: iconPosition },
                   { translateY },
                   { scale: pressedIcon === 'sparkle' ? 1.2 : 1 }
                 ]
@@ -190,8 +199,8 @@ export default function AnimatedWelcome({ userName = 'there', onFinish }: Animat
               { 
                 backgroundColor: theme.colors.success + '20',
                 borderColor: theme.colors.success + '50',
+                opacity: iconOpacity,
                 transform: [
-                  { translateX: iconPosition },
                   { translateY: Animated.add(translateY, new Animated.Value(8)) },
                   { scale: pressedIcon === 'list' ? 1.2 : 1 }
                 ]
@@ -215,8 +224,8 @@ export default function AnimatedWelcome({ userName = 'there', onFinish }: Animat
               { 
                 backgroundColor: theme.colors.warning + '20',
                 borderColor: theme.colors.warning + '50',
+                opacity: iconOpacity,
                 transform: [
-                  { translateX: iconPosition },
                   { translateY: Animated.multiply(translateY, new Animated.Value(-1)) },
                   { scale: pressedIcon === 'timer' ? 1.2 : 1 }
                 ]
@@ -260,6 +269,9 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    width: '100%',
+    height: '100%',
+    zIndex: 1000, // Increased to ensure it appears above all other elements
   },
   gradient: {
     position: 'absolute',

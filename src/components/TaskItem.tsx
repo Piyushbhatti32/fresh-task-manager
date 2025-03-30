@@ -48,6 +48,14 @@ export default function TaskItem({ task, onPress, onStartPomodoro, onToggle }: T
     return completed / task.subtasks.length;
   };
 
+  // Create a safe color with opacity
+  const createSafeColorWithOpacity = (color: string | undefined, opacity: string) => {
+    if (!color) {
+      color = theme.colors.primary;
+    }
+    return color + opacity;
+  };
+
   return (
     <TouchableOpacity onPress={onPress}>
       <Surface style={[
@@ -86,14 +94,8 @@ export default function TaskItem({ task, onPress, onStartPomodoro, onToggle }: T
                     backgroundColor: task.completed ? 
                       (isDark ? '#4CAF5060' : '#4CAF5040') : 
                       (isDark ? '#FFC10760' : '#FFC10740'),
-                    textStyle: { 
-                      color: task.completed ? 
-                        (isDark ? '#81C784' : '#2E7D32') : 
-                        (isDark ? '#FFD54F' : '#F57F17'),
-                      fontWeight: '600',
-                      fontSize: 13,
-                    },
                     marginRight: 8,
+                    marginTop: 8,
                     height: 28,
                     paddingHorizontal: 8,
                   }
@@ -120,6 +122,7 @@ export default function TaskItem({ task, onPress, onStartPomodoro, onToggle }: T
                   style={styles.toggleButton}
                   onPress={(e) => {
                     e.stopPropagation();
+                    console.log('TaskItem - Checkbox clicked for task:', task.id);
                     onToggle();
                   }}
                 />
@@ -141,7 +144,7 @@ export default function TaskItem({ task, onPress, onStartPomodoro, onToggle }: T
               <MaterialIcons 
                 name="event" 
                 size={14} 
-                color={theme.colors.onSurfaceVariant}
+                color={theme.colors.text}
                 style={styles.metadataIcon}
               />
               <Text style={styles.metadataText}>
@@ -165,16 +168,20 @@ export default function TaskItem({ task, onPress, onStartPomodoro, onToggle }: T
           
           <View style={styles.footer}>
             <View style={styles.tags}>
-              {(task as any).tags && (task as any).tags.length > 0 && (task as any).tags.map((tag: { name: string; color: string }, index: number) => (
-                <Chip 
-                  key={index} 
-                  style={[styles.tag, { backgroundColor: tag.color + '20' }]}
-                  textStyle={{ color: tag.color, fontSize: 12 }}
-                  compact
-                >
-                  {tag.name}
-                </Chip>
-              ))}
+              {(task as any).tags && (task as any).tags.length > 0 && (task as any).tags.map((tag: { name: string; color: string }, index: number) => {
+                const safeColor = tag.color || theme.colors.primary;
+                return (
+                  <Chip 
+                    key={index} 
+                    style={[styles.tag, { backgroundColor: createSafeColorWithOpacity(safeColor, '20') }]}
+                    compact
+                  >
+                    <Text style={{color: safeColor, fontSize: 12}}>
+                      {tag.name}
+                    </Text>
+                  </Chip>
+                );
+              })}
             </View>
           </View>
         </View>

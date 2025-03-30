@@ -87,23 +87,7 @@ export default function TaskGridView({
 
   // Generate avatar for task based on title
   const getTaskAvatar = (task: Task) => {
-    if (!task.title) return null;
-    
-    const initials = task.title
-      .split(' ')
-      .slice(0, 2)
-      .map(word => word[0])
-      .join('')
-      .toUpperCase();
-      
-    return (
-      <Avatar.Text 
-        size={30} 
-        label={initials} 
-        color="#fff"
-        style={{ backgroundColor: getPriorityColor(task.priority) }}
-      />
-    );
+    return null; // No longer generating avatar
   };
   
   // Get subtasks progress
@@ -120,6 +104,20 @@ export default function TaskGridView({
   const handleToggleSubtask = (taskId: string, subtaskId: string) => {
     if (onToggleSubtaskCompletion) {
       onToggleSubtaskCompletion(taskId, subtaskId);
+    }
+  };
+  
+  // Add a function to get the priority icon based on priority level
+  const getPriorityIcon = (priority?: string) => {
+    switch (priority?.toLowerCase()) {
+      case 'high':
+        return 'arrow-upward';
+      case 'medium':
+        return 'remove';
+      case 'low':
+        return 'arrow-downward';
+      default:
+        return 'remove';
     }
   };
   
@@ -173,8 +171,6 @@ export default function TaskGridView({
           
           {/* Header with avatar and actions */}
           <View style={styles.cardHeader}>
-            {getTaskAvatar(item)}
-            
             <View style={styles.headerActions}>
               {hasSubtasks && (
                 <IconButton 
@@ -184,35 +180,35 @@ export default function TaskGridView({
                   onPress={() => handleShowSubtasks(item)}
                 />
               )}
-              
-              <IconButton 
-                icon={item.completed ? "check-circle" : "circle-outline"}
-                size={18}
-                iconColor={item.completed ? theme.colors.success : theme.colors.text}
-                style={styles.actionButton}
-                onPress={handleToggle}
-              />
             </View>
           </View>
           
           {/* Title and description */}
           <View style={styles.textContent}>
-            <Text 
-              style={[
-                styles.title,
-                { color: theme.colors.text },
-                item.completed && styles.completedText
-              ]}
-              numberOfLines={2}
-            >
-              {item.title}
-            </Text>
+            <View style={styles.titleContainer}>
+              <MaterialIcons 
+                name={getPriorityIcon(item.priority)} 
+                size={16} 
+                color={getPriorityColor(item.priority)}
+                style={styles.priorityIcon}
+              />
+              <Text 
+                style={[
+                  styles.title,
+                  { color: theme.colors.text },
+                  item.completed && styles.completedText
+                ]}
+                numberOfLines={2}
+              >
+                {item.title}
+              </Text>
+            </View>
             
             {item.description ? (
               <Text 
                 style={[
                   styles.description,
-                  { color: theme.colors.secondary },
+                  { color: 'rgba(0, 0, 0, 0.6)' },
                   item.completed && styles.completedText
                 ]}
                 numberOfLines={2}
@@ -246,9 +242,9 @@ export default function TaskGridView({
                 <MaterialCommunityIcons 
                   name="clock-outline" 
                   size={14} 
-                  color={theme.colors.secondary} 
+                  color="#1976D2" 
                 />
-                <Text style={[styles.metaText, { color: theme.colors.secondary }]}>
+                <Text style={[styles.metaText, { color: '#1976D2' }]}>
                   {formatDueDate(item.dueDate)}
                 </Text>
               </View>
@@ -264,18 +260,28 @@ export default function TaskGridView({
               </Chip>
             )}
             
-            {onStartPomodoro && (
-              <IconButton
-                icon="timer-outline"
+            <View style={styles.iconContainer}>
+              <IconButton 
+                icon={item.completed ? "check-circle" : "circle-outline"}
                 size={16}
-                iconColor={theme.colors.primary}
-                style={styles.timerButton}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  onStartPomodoro(item.id);
-                }}
+                iconColor={item.completed ? theme.colors.success : theme.colors.text}
+                style={styles.footerIcon}
+                onPress={handleToggle}
               />
-            )}
+              
+              {onStartPomodoro && (
+                <IconButton
+                  icon="timer-outline"
+                  size={16}
+                  iconColor={theme.colors.primary}
+                  style={styles.footerIcon}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onStartPomodoro(item.id);
+                  }}
+                />
+              )}
+            </View>
           </View>
         </TouchableOpacity>
       </Surface>
@@ -439,8 +445,9 @@ const styles = StyleSheet.create({
   },
   cardContent: {
     padding: 0,
-    height: 170,
+    height: 166,
     position: 'relative',
+    paddingBottom: 4,
   },
   statusIndicator: {
     position: 'absolute',
@@ -451,11 +458,10 @@ const styles = StyleSheet.create({
   },
   cardHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 12,
+    justifyContent: 'flex-end',
+    marginBottom: 6,
     paddingTop: 12,
-    paddingBottom: 8,
+    paddingRight: 12,
   },
   headerActions: {
     flexDirection: 'row',
@@ -468,17 +474,32 @@ const styles = StyleSheet.create({
   },
   textContent: {
     paddingHorizontal: 12,
+    paddingVertical: 8,
     flex: 1,
+    paddingRight: 20,
+  },
+  titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    width: '100%',
+    paddingRight: 8,
+  },
+  priorityIcon: {
+    marginRight: 8,
   },
   title: {
     fontSize: 15,
     fontWeight: '600',
-    marginBottom: 4,
+    marginBottom: 6,
+    flex: 1,
+    paddingRight: 8,
   },
   description: {
     fontSize: 12,
-    marginBottom: 4,
+    marginBottom: 8,
     opacity: 0.8,
+    paddingLeft: 20,
   },
   completedText: {
     textDecorationLine: 'line-through',
@@ -509,11 +530,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 12,
-    paddingBottom: 12,
+    paddingBottom: 8,
   },
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginLeft: 4,
   },
   metaText: {
     fontSize: 12,
@@ -523,7 +545,11 @@ const styles = StyleSheet.create({
     height: 20,
     marginLeft: 'auto',
   },
-  timerButton: {
+  iconContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  footerIcon: {
     margin: 0,
     padding: 0,
     width: 24,

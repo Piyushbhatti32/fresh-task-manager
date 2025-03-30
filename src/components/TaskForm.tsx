@@ -20,16 +20,17 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Task, TaskCategory, RecurrencePattern, ReminderOption, SubTask } from '../types/Task';
 import { useTaskStore } from '../stores/taskStore';
-import { format, parse, addMinutes, addDays, addWeeks, addMonths, addYears } from 'date-fns';
+import { format, parse, addMinutes, addDays, addWeeks, addMonths, addYears, isValid } from 'date-fns';
 import { useTheme } from '../theme/ThemeProvider';
 import { Picker } from '@react-native-picker/picker';
 import { setTimeForDate } from '../services/RecurrenceService';
 import SubTaskList from './SubTaskList';
-import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import { formatISO } from 'date-fns';
 import { HelperText, Chip, Surface } from 'react-native-paper';
 import databaseService from '../database/DatabaseService';
 import * as Haptics from 'expo-haptics';
+import * as Speech from 'expo-speech';
 
 interface TaskFormProps {
   task?: Task;
@@ -78,7 +79,7 @@ const PRIORITY_OPTIONS = [
 
 export default function TaskForm({ task, isVisible, onClose, onSave }: TaskFormProps) {
   const { theme, isDark } = useTheme();
-  const { addTask, updateTask } = useTaskStore();
+  const { addTask, updateTask, templates = [] } = useTaskStore();
   
   // Add loading states
   const [isLoading, setIsLoading] = useState(false);
@@ -102,6 +103,11 @@ export default function TaskForm({ task, isVisible, onClose, onSave }: TaskFormP
   const [dueTime, setDueTime] = useState<Date | undefined>(task?.dueDate ? new Date(task.dueDate) : undefined);
   const [category, setCategory] = useState<string | undefined>(task?.categoryId || undefined);
   
+  // Add AI suggestion state
+  const [suggestedTitle, setSuggestedTitle] = useState('');
+  const [showSuggestion, setShowSuggestion] = useState(false);
+  const [isGeneratingSuggestion, setIsGeneratingSuggestion] = useState(false);
+  
   // Advanced options
   const [hasReminder, setHasReminder] = useState(task?.reminder !== undefined);
   const [reminderMinutes, setReminderMinutes] = useState(task?.reminder || 30);
@@ -124,6 +130,17 @@ export default function TaskForm({ task, isVisible, onClose, onSave }: TaskFormP
   
   // Add state for quick add
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  
+  // Add state for focused section
+  const [focusedSection, setFocusedSection] = useState<'basic' | 'details' | 'subtasks'>('basic');
+  
+  // Add smart date input state
+  const [smartDateInput, setSmartDateInput] = useState('');
+  const [showSmartDateInput, setShowSmartDateInput] = useState(false);
+  
+  // Voice input states
+  const [isListening, setIsListening] = useState(false);
+  const [voiceTarget, setVoiceTarget] = useState<'title' | 'description' | null>(null);
   
   // Update the useEffect for initializing form data to include subtasks
   useEffect(() => {
@@ -516,6 +533,44 @@ export default function TaskForm({ task, isVisible, onClose, onSave }: TaskFormP
     setShowQuickAdd(false);
   };
 
+  // Handle applying a custom template from the store
+  const handleUseTemplate = async (template: any) => {
+    await handleInteraction('medium');
+    // Apply template data to form
+    setTitle(template.title);
+    setDescription(template.description || '');
+    setPriority(template.priority || 'medium');
+    
+    // Set due date based on template's dueTimeOffset or default to tomorrow
+    if (template.dueTimeOffset) {
+      const newDueDate = new Date();
+      newDueDate.setDate(newDueDate.getDate() + template.dueTimeOffset);
+      setDueDate(newDueDate);
+    } else {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      setDueDate(tomorrow);
+    }
+    
+    // Add subtasks from template
+    if (template.subtasks && Array.isArray(template.subtasks)) {
+      const newSubtasks = template.subtasks.map((st: any) => ({
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        title: st.title,
+        completed: false,
+        createdAt: new Date()
+      }));
+      setSubtasks(newSubtasks);
+    }
+    
+    // Set category if provided
+    if (template.categoryId) {
+      setCategory(template.categoryId);
+    }
+    
+    setShowQuickAdd(false);
+  };
+
   // Handle tag management
   const handleAddTag = async () => {
     if (newTag.trim()) {
@@ -548,6 +603,161 @@ export default function TaskForm({ task, isVisible, onClose, onSave }: TaskFormP
     }
   };
 
+  // Add the priority color helper function
+  const getPriorityColor = (priority: string = 'medium') => {
+    switch (priority.toLowerCase()) {
+      case 'high':
+        return '#FF5252';
+      case 'medium':
+        return '#FFB300';
+      case 'low':
+        return '#69F0AE';
+      default:
+        return '#BDBDBD';
+    }
+  };
+
+  // Generate AI suggestion for the task
+  const generateSuggestion = () => {
+    setIsGeneratingSuggestion(true);
+    
+    // Simulate AI generating a suggestion (would be replaced with actual API call)
+    setTimeout(() => {
+      const suggestions = [
+        "Weekly team meeting",
+        "Review project documentation",
+        "Send follow-up email to client",
+        "Update project timeline",
+        "Research competitor strategies",
+        "Prepare presentation slides",
+        "Schedule stakeholder interview"
+      ];
+      
+      const randomSuggestion = suggestions[Math.floor(Math.random() * suggestions.length)];
+      setSuggestedTitle(randomSuggestion);
+      setShowSuggestion(true);
+      setIsGeneratingSuggestion(false);
+    }, 1000);
+  };
+
+  // Accept the suggested title
+  const acceptSuggestion = () => {
+    setTitle(suggestedTitle);
+    setShowSuggestion(false);
+  };
+
+  // Parse natural language date
+  const parseSmartDate = (input: string) => {
+    const today = new Date();
+    const lowercaseInput = input.toLowerCase().trim();
+    
+    if (lowercaseInput === 'today') {
+      return today;
+    }
+    
+    if (lowercaseInput === 'tomorrow') {
+      return addDays(today, 1);
+    }
+    
+    if (lowercaseInput === 'next week' || lowercaseInput === 'in a week') {
+      return addWeeks(today, 1);
+    }
+    
+    if (lowercaseInput === 'next month') {
+      return addMonths(today, 1);
+    }
+    
+    // Handle "next [day of week]"
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    for (let i = 0; i < days.length; i++) {
+      if (lowercaseInput === `next ${days[i]}`) {
+        const targetDay = i;
+        const currentDay = today.getDay();
+        const daysUntilNext = (targetDay + 7 - currentDay) % 7;
+        return addDays(today, daysUntilNext === 0 ? 7 : daysUntilNext);
+      }
+    }
+    
+    // Try to parse as a date string
+    try {
+      const parsedDate = new Date(input);
+      if (isValid(parsedDate)) {
+        return parsedDate;
+      }
+    } catch (error) {
+      console.log('Error parsing date:', error);
+    }
+    
+    // If all else fails, return undefined
+    return undefined;
+  };
+  
+  // Handle smart date input submission
+  const handleSmartDateSubmit = () => {
+    const parsedDate = parseSmartDate(smartDateInput);
+    if (parsedDate) {
+      setDueDate(parsedDate);
+      // Also set time to noon by default
+      const dateWithTime = new Date(parsedDate);
+      dateWithTime.setHours(12, 0, 0, 0);
+      setDueTime(dateWithTime);
+    }
+    setSmartDateInput('');
+    setShowSmartDateInput(false);
+  };
+
+  // Simulate voice recognition (in a real app, would use Speech Recognition API)
+  const startVoiceInput = (target: 'title' | 'description') => {
+    setVoiceTarget(target);
+    setIsListening(true);
+    
+    // Show feedback to user
+    handleInteraction('medium');
+    
+    // Simulate voice processing (would be real speech recognition in production)
+    setTimeout(() => {
+      const demoVoiceResults = {
+        title: [
+          "Schedule team meeting for project review",
+          "Complete budget report for Q3",
+          "Research new project management tools",
+          "Follow up with client about feedback"
+        ],
+        description: [
+          "Need to discuss timeline changes and resource allocation with the team. Prepare slides beforehand.",
+          "Include sales projections and expense breakdown. Send to finance department when complete.",
+          "Focus on tools that integrate with our current stack and have good collaboration features.",
+          "Address their concerns about the latest deliverable and provide timeline for revisions."
+        ]
+      };
+      
+      // Get random result based on target
+      const results = demoVoiceResults[target];
+      const randomResult = results[Math.floor(Math.random() * results.length)];
+      
+      // Apply the result to the appropriate field
+      if (target === 'title') {
+        setTitle(randomResult);
+      } else {
+        setDescription(randomResult);
+      }
+      
+      // End voice recognition
+      setIsListening(false);
+      setVoiceTarget(null);
+      
+      // Provide feedback
+      handleInteraction('heavy');
+    }, 2000);
+  };
+  
+  // Cancel voice input
+  const cancelVoiceInput = () => {
+    setIsListening(false);
+    setVoiceTarget(null);
+    handleInteraction('light');
+  };
+
   return (
     <Modal
       visible={isVisible}
@@ -567,7 +777,7 @@ export default function TaskForm({ task, isVisible, onClose, onSave }: TaskFormP
                 style={[styles.headerTitle, { color: theme.colors.text }]}
                 accessibilityRole="header"
               >
-                {task ? 'Edit Task' : 'Add Task'}
+                {task ? 'Edit Task' : 'New Task'}
               </Text>
               <View style={styles.headerActions}>
                 <TouchableOpacity 
@@ -596,11 +806,63 @@ export default function TaskForm({ task, isVisible, onClose, onSave }: TaskFormP
               </View>
             </View>
 
+            {/* New section navigation */}
+            <View style={styles.sectionNav}>
+              <TouchableOpacity 
+                style={[
+                  styles.sectionTab, 
+                  focusedSection === 'basic' && [styles.activeTab, {borderBottomColor: theme.colors.primary}]
+                ]}
+                onPress={() => setFocusedSection('basic')}
+              >
+                <Text style={[
+                  styles.sectionTabText, 
+                  {color: focusedSection === 'basic' ? theme.colors.primary : theme.colors.text}
+                ]}>
+                  Basic
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[
+                  styles.sectionTab, 
+                  focusedSection === 'details' && [styles.activeTab, {borderBottomColor: theme.colors.primary}]
+                ]}
+                onPress={() => setFocusedSection('details')}
+              >
+                <Text style={[
+                  styles.sectionTabText, 
+                  {color: focusedSection === 'details' ? theme.colors.primary : theme.colors.text}
+                ]}>
+                  Details
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[
+                  styles.sectionTab, 
+                  focusedSection === 'subtasks' && [styles.activeTab, {borderBottomColor: theme.colors.primary}]
+                ]}
+                onPress={() => setFocusedSection('subtasks')}
+              >
+                <Text style={[
+                  styles.sectionTabText, 
+                  {color: focusedSection === 'subtasks' ? theme.colors.primary : theme.colors.text}
+                ]}>
+                  Subtasks
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             {showQuickAdd && (
               <View 
-                style={styles.quickAddContainer}
+                style={[styles.quickAddContainer, { backgroundColor: theme.colors.background }]}
                 accessibilityLabel="Quick Add Templates"
               >
+                <Text style={[
+                  styles.sectionLabel, 
+                  {color: theme.colors.text, fontWeight: 'bold', marginBottom: 8 }
+                ]}>
+                  Quick Templates
+                </Text>
                 <ScrollView 
                   horizontal 
                   showsHorizontalScrollIndicator={false}
@@ -621,6 +883,51 @@ export default function TaskForm({ task, isVisible, onClose, onSave }: TaskFormP
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
+                
+                {templates.length > 0 && (
+                  <>
+                    <Text style={[
+                      styles.sectionLabel, 
+                      {color: theme.colors.text, fontWeight: 'bold', marginTop: 16, marginBottom: 8 }
+                    ]}>
+                      Your Templates
+                    </Text>
+                    <ScrollView 
+                      horizontal 
+                      showsHorizontalScrollIndicator={false}
+                      accessibilityRole="list"
+                    >
+                      {templates.map((template) => (
+                        <TouchableOpacity
+                          key={template.id}
+                          style={[
+                            styles.quickAddItem, 
+                            { 
+                              backgroundColor: getPriorityColor(template.priority) + '20',
+                              borderLeftWidth: 3,
+                              borderLeftColor: getPriorityColor(template.priority)
+                            }
+                          ]}
+                          onPress={() => handleUseTemplate(template)}
+                          accessibilityLabel={`Use template ${template.name}`}
+                          accessibilityRole="button"
+                        >
+                          <MaterialCommunityIcons 
+                            name="file-document-outline" 
+                            size={24} 
+                            color={getPriorityColor(template.priority)} 
+                          />
+                          <Text style={[
+                            styles.quickAddText, 
+                            { color: theme.colors.text }
+                          ]}>
+                            {template.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </>
+                )}
               </View>
             )}
             
@@ -630,230 +937,252 @@ export default function TaskForm({ task, isVisible, onClose, onSave }: TaskFormP
               showsVerticalScrollIndicator={false}
               accessibilityRole="none"
             >
-              {/* Title input with enhanced styling and accessibility */}
-              <Surface style={[styles.inputSurface, { backgroundColor: theme.colors.surface }]}>
-                <TextInput
-                  style={[
-                    styles.input, 
-                    { 
-                      color: theme.colors.text,
-                    },
-                    validationErrors.title && styles.inputError
-                  ]}
-                  placeholder="Task title"
-                  placeholderTextColor={theme.colors.text + '80'}
-                  value={title}
-                  onChangeText={handleTitleChange}
-                  accessibilityLabel="Task Title"
-                  accessibilityHint="Enter the title of your task"
-                  accessibilityRole="none"
-                />
-                {validationErrors.title && (
-                  <HelperText type="error" visible={true}>
-                    {validationErrors.title}
-                  </HelperText>
-                )}
-              </Surface>
-
-              {/* Description input with enhanced styling */}
-              <Surface style={[styles.inputSurface, { backgroundColor: theme.colors.surface }]}>
-                <TextInput
-                  style={[
-                    styles.input, 
-                    { 
-                      color: theme.colors.text,
-                    }
-                  ]}
-                  placeholder="Description"
-                  placeholderTextColor={theme.colors.text + '80'}
-                  value={description}
-                  onChangeText={setDescription}
-                  multiline
-                  numberOfLines={3}
-                  accessibilityLabel="Task Description"
-                  accessibilityHint="Enter the description of your task"
-                  accessibilityRole="none"
-                />
-              </Surface>
-
-              {/* Priority selector with enhanced styling */}
-              <View style={styles.prioritySection}>
-                <Text style={[styles.label, { color: theme.colors.text }]}>Priority</Text>
-                <View style={styles.priorityContainer}>
-                  {PRIORITY_OPTIONS.map((option) => (
-                    <TouchableOpacity
-                      key={option.value}
-                      style={[
-                        styles.priorityButton,
-                        { 
-                          borderColor: option.color,
-                          backgroundColor: 'transparent',
-                        }
-                      ]}
-                      onPress={() => {
-                        handleInteraction('light');
-                        setPriority(option.value as 'low' | 'medium' | 'high');
-                      }}
-                      accessibilityLabel={`Set priority to ${option.label} - ${option.description}`}
-                      accessibilityRole="button"
-                    >
-                      <MaterialIcons
-                        name={option.icon}
-                        size={24}
-                        color={priority === option.value ? option.color : theme.colors.text}
+              {focusedSection === 'basic' && (
+                <>
+                  {/* Title input with AI suggestion button */}
+                  <Surface style={[styles.inputSurface, { backgroundColor: theme.colors.surface }]}>
+                    <View style={styles.titleInputContainer}>
+                      <TextInput
+                        style={[
+                          styles.input, 
+                          { 
+                            color: theme.colors.text,
+                            flex: 1
+                          },
+                          validationErrors.title && styles.inputError
+                        ]}
+                        placeholder="What do you need to do?"
+                        placeholderTextColor={theme.colors.text + '80'}
+                        value={title}
+                        onChangeText={handleTitleChange}
+                        accessibilityLabel="Task Title"
+                        accessibilityHint="Enter the title of your task"
+                        accessibilityRole="none"
                       />
-                      <Text
-                        style={[
-                          styles.priorityText,
-                          { color: priority === option.value ? option.color : theme.colors.text }
-                        ]}
+                      <TouchableOpacity 
+                        style={styles.voiceButton}
+                        onPress={() => startVoiceInput('title')}
+                        disabled={isListening}
                       >
-                        {option.label}
-                      </Text>
-                      <Text
+                        <MaterialCommunityIcons 
+                          name="microphone-outline" 
+                          size={24} 
+                          color={isListening && voiceTarget === 'title' ? 'red' : theme.colors.primary} 
+                        />
+                      </TouchableOpacity>
+                    </View>
+                    
+                    {showSuggestion && (
+                      <View style={styles.suggestionContainer}>
+                        <Text style={styles.suggestionText}>
+                          Suggestion: {suggestedTitle}
+                        </Text>
+                        <TouchableOpacity 
+                          style={styles.acceptButton}
+                          onPress={acceptSuggestion}
+                        >
+                          <Text style={styles.acceptButtonText}>Use this</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                    
+                    {isGeneratingSuggestion && (
+                      <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                        <Text style={{marginLeft: 8, color: theme.colors.text}}>
+                          Generating suggestion...
+                        </Text>
+                      </View>
+                    )}
+                    
+                    {validationErrors.title && (
+                      <HelperText type="error" visible={true}>
+                        {validationErrors.title}
+                      </HelperText>
+                    )}
+                  </Surface>
+
+                  {/* Description input with enhanced styling */}
+                  <Surface style={[styles.inputSurface, { backgroundColor: theme.colors.surface }]}>
+                    <View style={styles.descriptionContainer}>
+                      <TextInput
                         style={[
-                          styles.priorityDescription,
-                          { color: priority === option.value ? option.color + '80' : theme.colors.text + '80' }
+                          styles.input, 
+                          styles.textArea,
+                          { 
+                            color: theme.colors.text,
+                            flex: 1
+                          }
                         ]}
+                        placeholder="Add details (optional)"
+                        placeholderTextColor={theme.colors.text + '80'}
+                        value={description}
+                        onChangeText={setDescription}
+                        multiline
+                        numberOfLines={3}
+                        accessibilityLabel="Task Description"
+                        accessibilityHint="Enter the description of your task"
+                        accessibilityRole="none"
+                      />
+                      <TouchableOpacity 
+                        style={styles.voiceButton}
+                        onPress={() => startVoiceInput('description')}
+                        disabled={isListening}
                       >
-                        {option.description}
+                        <MaterialCommunityIcons 
+                          name="microphone-outline" 
+                          size={24} 
+                          color={isListening && voiceTarget === 'description' ? 'red' : theme.colors.primary} 
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </Surface>
+
+                  {/* Priority selector with enhanced styling */}
+                  <View style={styles.prioritySection}>
+                    <Text style={[styles.label, { color: theme.colors.text }]}>Priority</Text>
+                    <View style={styles.priorityContainer}>
+                      {PRIORITY_OPTIONS.map((option) => (
+                        <TouchableOpacity
+                          key={option.value}
+                          style={[
+                            styles.priorityButton,
+                            { 
+                              borderColor: priority === option.value ? option.color : theme.colors.outline,
+                              backgroundColor: priority === option.value ? option.color + '20' : 'transparent',
+                            }
+                          ]}
+                          onPress={() => {
+                            handleInteraction('light');
+                            setPriority(option.value as 'low' | 'medium' | 'high');
+                          }}
+                          accessibilityLabel={`Set priority to ${option.label} - ${option.description}`}
+                          accessibilityRole="button"
+                        >
+                          <MaterialIcons
+                            name={option.icon}
+                            size={24}
+                            color={priority === option.value ? option.color : theme.colors.text}
+                          />
+                          <Text
+                            style={[
+                              styles.priorityText,
+                              { color: priority === option.value ? option.color : theme.colors.text }
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                </>
+              )}
+
+              {focusedSection === 'details' && (
+                <>
+                  {/* Enhanced date/time picker */}
+                  <Text style={[styles.label, { color: theme.colors.text }]}>Due Date & Time</Text>
+                  <View style={styles.dateTimeContainer}>
+                    <TouchableOpacity
+                      style={[styles.dateTimeButton, { borderColor: theme.colors.outline }]}
+                      onPress={() => openDateTimePicker('date', 'dueDate')}
+                    >
+                      <MaterialIcons name="event" size={20} color={theme.colors.text} />
+                      <Text style={[styles.dateTimeButtonText, { color: theme.colors.text }]}>
+                        {dueDate ? format(dueDate, 'EEE, MMM d') : 'Add date'}
                       </Text>
                     </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {/* Tags section */}
-              <Text style={[styles.label, { color: theme.colors.text }]}>Tags</Text>
-              <View style={styles.tagsContainer}>
-                <View style={styles.tagsList}>
-                  {availableTags.map((tag) => (
-                    <Chip
-                      key={tag.id}
-                      selected={selectedTags.includes(tag.id)}
-                      onPress={() => toggleTag(tag.id)}
+                    
+                    <TouchableOpacity
                       style={[
-                        styles.tag,
-                        { 
-                          backgroundColor: selectedTags.includes(tag.id) 
-                            ? tag.color + '20' 
-                            : theme.colors.surface,
-                          borderColor: tag.color,
-                          marginRight: 8
-                        }
+                        styles.dateTimeButton,
+                        { borderColor: theme.colors.outline },
+                        !dueDate && styles.dateTimeButtonDisabled
                       ]}
+                      onPress={() => dueDate && openDateTimePicker('time', 'dueTime')}
+                      disabled={!dueDate}
                     >
-                      {tag.name}
-                    </Chip>
-                  ))}
-                </View>
-                <View style={styles.tagInputContainer}>
-                  <TextInput
-                    style={[styles.tagInput, { 
-                      color: theme.colors.text,
-                      backgroundColor: theme.colors.surface,
-                      borderColor: theme.colors.outline
-                    }]}
-                    value={newTag}
-                    onChangeText={setNewTag}
-                    placeholder="Add new tag"
-                    placeholderTextColor={theme.colors.text + '80'}
-                    onSubmitEditing={handleAddTag}
-                  />
-                  <TouchableOpacity
-                    style={[styles.addTagButton, { backgroundColor: theme.colors.primary }]}
-                    onPress={handleAddTag}
-                  >
-                    <MaterialIcons name="add" size={24} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Enhanced date/time picker */}
-              <Text style={[styles.label, { color: theme.colors.text }]}>Due Date & Time</Text>
-              <View style={styles.dateTimeContainer}>
-                <TouchableOpacity
-                  style={[styles.dateTimeButton, { borderColor: theme.colors.outline }]}
-                  onPress={() => openDateTimePicker('date', 'dueDate')}
-                >
-                  <MaterialIcons name="event" size={20} color={theme.colors.text} />
-                  <Text style={[styles.dateTimeButtonText, { color: theme.colors.text }]}>
-                    {dueDate ? format(dueDate, 'MMM d, yyyy') : 'Select Date'}
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[
-                    styles.dateTimeButton,
-                    { borderColor: theme.colors.outline },
-                    !dueDate && styles.dateTimeButtonDisabled
-                  ]}
-                  onPress={() => dueDate && openDateTimePicker('time', 'dueTime')}
-                  disabled={!dueDate}
-                >
-                  <MaterialIcons name="schedule" size={20} color={theme.colors.text} />
-                  <Text style={[styles.dateTimeButtonText, { color: theme.colors.text }]}>
-                    {dueTime ? formatTimeForDisplay(dueTime) : 'Select Time'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              
-              {/* Category selection */}
-              <Text style={[styles.label, { color: theme.colors.text }]}>Category</Text>
-              <View style={styles.categoryContainer}>
-                {PRESET_CATEGORIES.map(cat => (
-                  <TouchableOpacity
-                    key={cat.id}
-                    style={[
-                      styles.categoryButton,
-                      { 
-                        borderColor: cat.color,
-                        backgroundColor: category === cat.id ? cat.color : 'transparent',
-                      }
-                    ]}
-                    onPress={() => setCategory(cat.id)}
-                  >
-                    <View style={[styles.colorIndicator, { backgroundColor: cat.color }]} />
-                    <Text style={[
-                      styles.categoryText,
-                      { color: category === cat.id ? (isDark ? '#000' : '#fff') : theme.colors.text }
-                    ]}>
-                      {cat.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-                
-                <TouchableOpacity
-                  style={[
-                    styles.categoryButton,
-                    { 
-                      borderColor: theme.colors.outline,
-                      borderStyle: 'dashed',
-                      backgroundColor: category === 'none' ? theme.colors.primary + '20' : 'transparent',
-                    }
-                  ]}
-                  onPress={() => setCategory(undefined)}
-                >
-                  <Text style={[styles.categoryText, { color: theme.colors.text }]}>
-                    None
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              
-              {/* Advanced options toggle */}
-              <TouchableOpacity 
-                style={[styles.advancedButton, { borderColor: theme.colors.outline }]}
-                onPress={toggleAdvancedOptions}
-              >
-                <Text style={[styles.advancedButtonText, { color: theme.colors.primary }]}>
-                  {showAdvancedOptions ? 'Hide Advanced Options' : 'Show Advanced Options'}
-                </Text>
-              </TouchableOpacity>
-              
-              {/* Advanced options section */}
-              {showAdvancedOptions && (
-                <View style={styles.advancedSection}>
-                  {/* Reminder option */}
+                      <MaterialIcons name="schedule" size={20} color={theme.colors.text} />
+                      <Text style={[styles.dateTimeButtonText, { color: theme.colors.text }]}>
+                        {dueTime ? formatTimeForDisplay(dueTime) : 'Add time'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  
+                  {/* Category selection */}
+                  <Text style={[styles.label, { color: theme.colors.text }]}>Category</Text>
+                  <View style={styles.categoryContainer}>
+                    {PRESET_CATEGORIES.map(cat => (
+                      <TouchableOpacity
+                        key={cat.id}
+                        style={[
+                          styles.categoryButton,
+                          { 
+                            borderColor: cat.color,
+                            backgroundColor: category === cat.id ? cat.color + '30' : 'transparent',
+                          }
+                        ]}
+                        onPress={() => setCategory(cat.id)}
+                      >
+                        <View style={[styles.colorIndicator, { backgroundColor: cat.color }]} />
+                        <Text style={[
+                          styles.categoryText,
+                          { color: category === cat.id ? cat.color : theme.colors.text }
+                        ]}>
+                          {cat.name}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  
+                  {/* Tags section */}
+                  <Text style={[styles.label, { color: theme.colors.text }]}>Tags</Text>
+                  <View style={styles.tagsContainer}>
+                    <View style={styles.tagsList}>
+                      {availableTags.map((tag) => (
+                        <Chip
+                          key={tag.id}
+                          selected={selectedTags.includes(tag.id)}
+                          onPress={() => toggleTag(tag.id)}
+                          style={[
+                            styles.tag,
+                            { 
+                              backgroundColor: selectedTags.includes(tag.id) 
+                                ? tag.color + '20' 
+                                : theme.colors.surface,
+                              borderColor: tag.color,
+                              marginRight: 8
+                            }
+                          ]}
+                        >
+                          {tag.name}
+                        </Chip>
+                      ))}
+                    </View>
+                    <View style={styles.tagInputContainer}>
+                      <TextInput
+                        style={[styles.tagInput, { 
+                          color: theme.colors.text,
+                          backgroundColor: theme.colors.surface,
+                          borderColor: theme.colors.outline
+                        }]}
+                        value={newTag}
+                        onChangeText={setNewTag}
+                        placeholder="Add new tag"
+                        placeholderTextColor={theme.colors.text + '80'}
+                        onSubmitEditing={handleAddTag}
+                      />
+                      <TouchableOpacity
+                        style={[styles.addTagButton, { backgroundColor: theme.colors.primary }]}
+                        onPress={handleAddTag}
+                      >
+                        <MaterialIcons name="add" size={24} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  
+                  {/* Reminders and recurrence */}
                   <View style={styles.optionRow}>
                     <Text style={[styles.optionLabel, { color: theme.colors.text }]}>Set Reminder</Text>
                     <Switch
@@ -886,7 +1215,6 @@ export default function TaskForm({ task, isVisible, onClose, onSave }: TaskFormP
                     </View>
                   )}
                   
-                  {/* Recurrence option */}
                   <View style={styles.optionRow}>
                     <Text style={[styles.optionLabel, { color: theme.colors.text }]}>Recurring Task</Text>
                     <Switch
@@ -958,17 +1286,19 @@ export default function TaskForm({ task, isVisible, onClose, onSave }: TaskFormP
                       </TouchableOpacity>
                     </>
                   )}
-                </View>
+                </>
               )}
-              
-              {/* Add SubTaskList component */}
-              <SubTaskList 
-                taskId={task?.id || 'new'} 
-                subtasks={subtasks}
-                progress={progress}
-                onChange={handleSubtasksChange}
-                isNewTask={!task}
-              />
+
+              {focusedSection === 'subtasks' && (
+                /* Add SubTaskList component with improved styling */
+                <SubTaskList 
+                  taskId={task?.id || 'new'} 
+                  subtasks={subtasks}
+                  progress={progress}
+                  onChange={handleSubtasksChange}
+                  isNewTask={!task}
+                />
+              )}
               
               {/* Add error message display */}
               {error && (
@@ -977,13 +1307,6 @@ export default function TaskForm({ task, isVisible, onClose, onSave }: TaskFormP
                     {error}
                   </Text>
                 </View>
-              )}
-              
-              {/* Add validation error messages */}
-              {validationErrors.title && (
-                <HelperText type="error" visible={true}>
-                  {validationErrors.title}
-                </HelperText>
               )}
               
               {/* Update save button with loading state and accessibility */}
@@ -1064,6 +1387,20 @@ export default function TaskForm({ task, isVisible, onClose, onSave }: TaskFormP
                 textColor={theme.colors.text}
               />
             )}
+
+            {/* Add voice listening indicator */}
+            {isListening && (
+              <View style={styles.listeningIndicator}>
+                <ActivityIndicator size="small" color="red" />
+                <Text style={styles.listeningText}>Listening...</Text>
+                <TouchableOpacity
+                  style={styles.cancelVoiceButton}
+                  onPress={cancelVoiceInput}
+                >
+                  <Text style={styles.cancelVoiceText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
@@ -1116,6 +1453,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
+  sectionLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
   quickAddItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1155,7 +1497,7 @@ const styles = StyleSheet.create({
     borderColor: '#eee',
   },
   textArea: {
-    height: 120,
+    height: 100,
     textAlignVertical: 'top',
   },
   prioritySection: {
@@ -1179,11 +1521,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginTop: 4,
-  },
-  priorityDescription: {
-    fontSize: 11,
-    marginTop: 2,
-    textAlign: 'center',
   },
   priorityIcon: {
     marginBottom: 8,
@@ -1250,29 +1587,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 2,
-  },
-  advancedOptionsContainer: {
-    backgroundColor: '#f8f8f8',
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 8,
-  },
-  advancedOptionsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  advancedOptionsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginLeft: 8,
-  },
-  advancedOptionsIcon: {
-    color: '#666',
-  },
-  advancedOptionsContent: {
-    marginTop: 16,
   },
   pickerContainer: {
     backgroundColor: '#fff',
@@ -1519,5 +1833,123 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderWidth: 1,
     borderColor: '#eee',
+  },
+  sectionNav: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  sectionTab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+  },
+  sectionTabText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  titleInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  aiSuggestButton: {
+    padding: 8,
+  },
+  suggestionContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#f0f8ff',
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  suggestionText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#333',
+  },
+  acceptButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  acceptButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 8,
+  },
+  smartDateContainer: {
+    marginBottom: 16,
+  },
+  smartDateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+  },
+  smartDateText: {
+    marginLeft: 8,
+    fontSize: 14,
+  },
+  smartDateInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  smartDateInput: {
+    flex: 1,
+    height: 40,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    marginRight: 8,
+  },
+  smartDateSubmit: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  voiceButton: {
+    padding: 8,
+  },
+  descriptionContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  listeningIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    backgroundColor: 'rgba(255,0,0,0.1)',
+    borderRadius: 16,
+    marginVertical: 8,
+  },
+  listeningText: {
+    color: 'red',
+    marginLeft: 8,
+    flex: 1,
+  },
+  cancelVoiceButton: {
+    backgroundColor: 'rgba(255,0,0,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  cancelVoiceText: {
+    color: 'red',
+    fontSize: 12,
   },
 }); 

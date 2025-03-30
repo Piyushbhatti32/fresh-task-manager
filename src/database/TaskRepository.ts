@@ -2,6 +2,11 @@ import databaseService from './DatabaseService';
 import { Task } from '../types/Task';
 import { formatISO } from 'date-fns';
 
+// Helper function to generate a unique ID if the database doesn't generate one
+function generateUniqueId(): string {
+  return 'task-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+}
+
 /**
  * Repository class for Task-related database operations
  */
@@ -9,26 +14,40 @@ class TaskRepository {
   /**
    * Create a new task
    */
-  async createTask(task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<number> {
+  async createTask(task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
     const now = formatISO(new Date());
     
-    const result = await databaseService.executeSql(
-      `INSERT INTO tasks (
-        title, description, dueDate, priority, completed, categoryId, createdAt, updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        task.title,
-        task.description || null,
-        task.dueDate || null,
-        task.priority || null,
-        task.completed ? 1 : 0,
-        task.categoryId || null,
-        now,
-        now
-      ]
-    );
+    // Generate a unique ID before insertion
+    const taskId = generateUniqueId();
     
-    return result.insertId || 0;
+    try {
+      console.log(`TaskRepository - Starting task creation for "${task.title}"`);
+      
+      // Use our implementation since databaseService.createTask was renamed to _createTaskInternal
+      console.log(`TaskRepository - Using repository implementation`);
+      const result = await databaseService.executeSql(
+        `INSERT INTO tasks (
+          id, title, description, dueDate, priority, completed, categoryId, createdAt, updatedAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          taskId,
+          task.title,
+          task.description || null,
+          task.dueDate || null,
+          task.priority || 'medium',
+          task.completed ? 1 : 0,
+          task.categoryId || null,
+          now,
+          now
+        ]
+      );
+      
+      console.log(`TaskRepository - Created task with ID: ${taskId}`);
+      return taskId;
+    } catch (error) {
+      console.error('Error creating task:', error);
+      throw error;
+    }
   }
 
   /**
@@ -79,12 +98,17 @@ class TaskRepository {
     
     query += ' ORDER BY dueDate ASC, priority DESC, createdAt DESC';
     
+    console.log(`TaskRepository - Executing query: ${query}`);
+    console.log(`TaskRepository - With parameters:`, params);
+    
     const result = await databaseService.executeSql(query, params);
     const tasks: Task[] = [];
     
     for (let i = 0; i < result.rows.length; i++) {
       tasks.push(this.mapTaskFromDatabase(result.rows.item(i)));
     }
+    
+    console.log(`TaskRepository - Found ${tasks.length} tasks`);
     
     return tasks;
   }

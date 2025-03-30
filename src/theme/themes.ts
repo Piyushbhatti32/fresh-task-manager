@@ -19,6 +19,8 @@ export const lightColors: ThemeColors = {
   highlight: '#f0f0f0',
   cardBackground: '#ffffff',
   shadowColor: '#000000',
+  surface: '#ffffff',
+  outline: '#e1e1e1',
 };
 
 // Default dark theme colors
@@ -39,6 +41,8 @@ export const darkColors: ThemeColors = {
   highlight: '#2c2c2c',
   cardBackground: '#2a2a2a',
   shadowColor: '#000000',
+  surface: '#1e1e1e',
+  outline: '#2c2c2c',
 };
 
 // Blue theme

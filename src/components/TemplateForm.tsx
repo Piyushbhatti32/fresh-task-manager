@@ -287,13 +287,13 @@ const TemplateForm: React.FC<TemplateFormProps> = ({
                       dropdownIconColor={theme.colors.text}
                     >
                       <Picker.Item label="Select a category" value={undefined} />
-                      {categories.map((category: any) => (
+                      {categories && categories.length > 0 ? categories.map((category: any) => (
                         <Picker.Item 
                           key={category.id} 
                           label={category.name} 
                           value={category.id} 
                         />
-                      ))}
+                      )) : null}
                     </Picker>
                   </View>
                 </View>

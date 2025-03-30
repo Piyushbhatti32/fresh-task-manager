@@ -17,6 +17,8 @@ export interface ThemeColors {
   highlight: string;
   cardBackground: string;
   shadowColor: string;
+  surface: string;
+  outline: string;
 }
 
 export type ThemeName = 'default' | 'blue' | 'green' | 'purple' | 'custom';

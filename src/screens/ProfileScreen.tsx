@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import {
   View,
   ScrollView,
@@ -6,6 +6,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   Alert,
+  Animated,
 } from 'react-native';
 import { 
   TextInput,
@@ -22,10 +23,79 @@ import {
 } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
 import { auth } from '../config/firebase';
-import { userService } from '../services/userService';
+import { userService, preloadUserProfile } from '../services/userService';
 import { UserProfile } from '../types/user';
 import { sendEmailVerification } from 'firebase/auth';
 import defaultAvatar from '../assets/default-avatar.png';
+
+// Skeleton component to show while loading user profile data
+const ProfileSkeleton = () => {
+  // Create a simple opacity animation for the shimmer effect
+  const [opacity] = useState(new Animated.Value(0.3));
+  
+  useEffect(() => {
+    // Create a repeating animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.8,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.3,
+          duration: 800,
+          useNativeDriver: true,
+        })
+      ])
+    ).start();
+  }, []);
+
+  const AnimatedView = ({ style }) => (
+    <Animated.View style={[style, { opacity }]} />
+  );
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <AnimatedView style={styles.avatarSkeleton} />
+        <AnimatedView style={styles.buttonSkeleton} />
+      </View>
+      
+      <View style={styles.form}>
+        <AnimatedView style={styles.inputSkeleton} />
+        <AnimatedView style={styles.textSkeleton} />
+        
+        <Divider style={styles.divider} />
+        
+        <AnimatedView style={styles.subheaderSkeleton} />
+        <AnimatedView style={styles.listItemSkeleton} />
+        <AnimatedView style={styles.listItemSkeleton} />
+        <AnimatedView style={styles.listItemSkeleton} />
+      </View>
+    </View>
+  );
+};
+
+// Helper function to create a default profile with safe values
+const createDefaultProfile = (user: any): UserProfile => {
+  return {
+    uid: user.uid,
+    email: user.email || '',
+    displayName: user.displayName || 'New User',
+    photoURL: null,
+    createdAt: new Date(),
+    lastLogin: new Date(),
+    isEmailVerified: !!user.emailVerified,
+    isAnonymous: !!user.isAnonymous,
+    settings: {
+      theme: 'system',
+      notifications: true,
+      language: 'en',
+      taskView: 'list'
+    }
+  };
+};
 
 export default function ProfileScreen({ navigation }: any) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -43,22 +113,66 @@ export default function ProfileScreen({ navigation }: any) {
     }
 
     try {
-      setIsLoading(true);
       const userProfile = await userService.getUserProfile(user.uid);
       if (userProfile) {
         setProfile(userProfile);
         setDisplayName(userProfile.displayName || '');
+      } else {
+        // Create a default profile if none exists
+        const defaultProfile = createDefaultProfile(user);
+        setProfile(defaultProfile);
+        setDisplayName(defaultProfile.displayName);
       }
     } catch (error) {
       console.error('Error loading profile:', error);
-      Alert.alert('Error', 'Failed to load profile. Please try again.');
+      // Create a default profile on error
+      if (user) {
+        const defaultProfile = createDefaultProfile(user);
+        setProfile(defaultProfile);
+        setDisplayName(defaultProfile.displayName);
+      }
+      // Show a toast or some non-blocking notification instead of an alert
+      console.log('Profile loading failed, using default profile');
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  // Preload profile on app start
   useEffect(() => {
+    const user = auth.currentUser;
+    if (user) {
+      // Preload profile in background for next time
+      preloadUserProfile(user.uid).catch(error => 
+        console.error('Error preloading profile:', error)
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    // Set a timeout to hide the loading state after a maximum of 2 seconds
+    // even if the profile is still loading, to improve perceived performance
+    const timer = setTimeout(() => {
+      if (isLoading) {
+        setIsLoading(false);
+        // If still loading after timeout, create a default profile
+        if (!profile && auth.currentUser) {
+          const user = auth.currentUser;
+          const defaultProfile = createDefaultProfile(user);
+          setProfile(defaultProfile);
+          setDisplayName(defaultProfile.displayName);
+          
+          // Continue trying to load the real profile in the background
+          setTimeout(() => {
+            loadProfile();
+          }, 1000);
+        }
+      }
+    }, 2000);
+    
     loadProfile();
+    
+    return () => clearTimeout(timer);
   }, [loadProfile]);
 
   const handleUpdateProfile = useCallback(async () => {
@@ -172,23 +286,11 @@ export default function ProfileScreen({ navigation }: any) {
   );
 
   if (isLoading) {
-    return (
-      <View style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" />
-        <Text style={styles.loadingText}>Loading profile...</Text>
-      </View>
-    );
+    return <ProfileSkeleton />;
   }
 
   if (!profile) {
-    return (
-      <View style={[styles.container, styles.centerContent]}>
-        <Text style={styles.errorText}>Failed to load profile</Text>
-        <Button mode="contained" onPress={loadProfile} style={styles.retryButton}>
-          Retry
-        </Button>
-      </View>
-    );
+    return <ProfileSkeleton />;
   }
   
   return (
@@ -376,5 +478,46 @@ const styles = StyleSheet.create({
   },
   retryButton: {
     marginTop: 8,
+  },
+  avatarSkeleton: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#ddd',
+  },
+  buttonSkeleton: {
+    width: 120,
+    height: 36,
+    borderRadius: 4,
+    backgroundColor: '#ddd',
+    marginTop: 10,
+  },
+  inputSkeleton: {
+    width: '100%',
+    height: 56,
+    borderRadius: 4,
+    backgroundColor: '#ddd',
+    marginBottom: 20,
+  },
+  textSkeleton: {
+    width: '80%',
+    height: 20,
+    borderRadius: 4,
+    backgroundColor: '#ddd',
+    marginBottom: 20,
+  },
+  subheaderSkeleton: {
+    width: '50%',
+    height: 24,
+    borderRadius: 4,
+    backgroundColor: '#ddd',
+    marginBottom: 16,
+  },
+  listItemSkeleton: {
+    width: '100%',
+    height: 56,
+    borderRadius: 4,
+    backgroundColor: '#ddd',
+    marginBottom: 12,
   },
 });

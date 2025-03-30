@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   View, 
   StyleSheet, 
   FlatList,
   TextInput,
-  TouchableOpacity
+  TouchableOpacity,
+  ScrollView,
+  Platform
 } from 'react-native';
 import {
   Button,
@@ -18,7 +20,9 @@ import {
   Searchbar,
   Chip,
   Surface,
-  Card
+  Card,
+  Dialog,
+  DatePickerInput
 } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -31,8 +35,10 @@ import TimelineView from '../components/TimelineView';
 import InlinePomodoroTimer from '../components/InlinePomodoroTimer';
 import TaskForm from '../components/TaskForm';
 import { useTaskStore } from '../stores/taskStore';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { format } from 'date-fns';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import PomodoroTimer from '../components/PomodoroTimer';
 
 type TasksScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Main'>;
 
@@ -45,10 +51,16 @@ const TasksScreen = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<{
-    status?: 'completed' | 'pending';
-    priority?: 'high' | 'medium' | 'low';
-    tag?: string;
-  }>({});
+    status?: string[];
+    priority?: string[];
+    dueDateRange?: { start?: Date, end?: Date };
+    tags?: string[];
+  }>({
+    status: [],
+    priority: [],
+    dueDateRange: {},
+    tags: []
+  });
   const [sortBy, setSortBy] = useState<'priority' | 'dueDate' | 'createdAt'>('dueDate');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [showForm, setShowForm] = useState(false);
@@ -56,18 +68,48 @@ const TasksScreen = () => {
   const [pomodoroTaskId, setPomodoroTaskId] = useState<string | undefined>(undefined);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
+  const [showDateFilterDialog, setShowDateFilterDialog] = useState(false);
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
 
-  // Fetch tasks when component mounts
+  // Fetch tasks when component mounts (consolidated from multiple hooks)
   useEffect(() => {
     const loadTasks = async () => {
       try {
+        console.log('Loading tasks on component mount (single useEffect)...');
+        
+        // Reset all filters
+        setFilter({
+          status: [],
+          priority: [],
+          dueDateRange: {},
+          tags: []
+        });
+        setSearchQuery('');
+        
+        // Make sure we're in list view for better visibility
+        setViewMode('list');
+        
+        // Fetch all tasks without any filtering
         await fetchTasks();
+        
+        console.log(`Total number of tasks in database: ${tasks.length}`);
+        tasks.forEach((task, index) => {
+          console.log(`Task ${index + 1}: ID=${task.id}, Title=${task.title}, Completed=${task.completed}`);
+        });
       } catch (error) {
         console.error('Error loading tasks:', error);
       }
     };
+    
     loadTasks();
-  }, [fetchTasks]);
+    // Empty dependency array means this only runs once on component mount
+  }, []);
+  
+  // Debug effect for filter menu
+  useEffect(() => {
+    console.log('Filter menu state updated:', showFilterMenu);
+  }, [showFilterMenu]);
   
   // Navigate to task details
   const handleTaskPress = (taskId: string) => {
@@ -82,44 +124,188 @@ const TasksScreen = () => {
 
   // Toggle task completion
   const handleToggleCompletion = async (taskId: string) => {
-    const task = tasks.find(t => t.id === taskId);
-    if (task) {
-      await updateTask(taskId, { completed: !task.completed });
+    console.log('TasksScreen - handleToggleCompletion called with taskId:', taskId);
+    try {
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        console.log('Found task:', task.id, task.title, 'Current completed status:', task.completed);
+        // Update task with new completed status
+        const updatedTask = {
+          ...task,
+          completed: !task.completed
+        };
+        await updateTask(updatedTask);
+        console.log('Task completion toggled successfully');
+        
+        // Refresh tasks to update UI
+        await fetchTasks();
+      } else {
+        console.error('Task not found with ID:', taskId);
+      }
+    } catch (error) {
+      console.error('Error toggling task completion:', error);
     }
   };
   
   // Create a new task
   const handleCreateTask = async (taskData: Partial<Task>) => {
-    await createTask(taskData as any);
-    setShowForm(false);
+    try {
+      const newTask = await createTask(taskData as any);
+      console.log('New task created successfully:', newTask.id);
+      
+      // No need to fetchTasks here as it will cause duplication
+      // The store already adds the new task to the tasks array
+      
+      setShowForm(false);
+      
+      // Just log the current task count
+      console.log(`Current task count after creation: ${tasks.length + 1}`);
+    } catch (error) {
+      console.error('Error creating task:', error);
+    }
+  };
+
+  // Toggle filter selection
+  const toggleFilter = (type: 'status' | 'priority', value: string) => {
+    setFilter(prev => {
+      const current = [...(prev[type] || [])];
+      const index = current.indexOf(value);
+      
+      if (index >= 0) {
+        current.splice(index, 1);
+      } else {
+        current.push(value);
+      }
+      
+      return {
+        ...prev,
+        [type]: current
+      };
+    });
+  };
+
+  // Check if a filter is active
+  const isFilterActive = (type: 'status' | 'priority', value: string) => {
+    return filter[type]?.includes(value) || false;
+  };
+
+  // Reset all filters
+  const resetFilters = () => {
+    setFilter({
+      status: [],
+      priority: [],
+      dueDateRange: {},
+      tags: []
+    });
+    setSearchQuery('');
+  };
+
+  // Toggle sort order
+  const toggleSortOrder = () => {
+    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
   };
   
   // Apply filter, search, and sorting
-  const getFilteredTasks = () => {
-    let filteredTasks = [...tasks];
+  const getFilteredTasks = useMemo(() => {
+    console.log(`Starting filtering with ${tasks.length} total tasks`);
+    let result = [...tasks];
     
-    // Apply search
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filteredTasks = filteredTasks.filter(task => 
-        task.title.toLowerCase().includes(query) ||
-        task.description?.toLowerCase().includes(query)
+    // Log the initial tasks
+    console.log(`Initial task count: ${result.length}`);
+    
+    // Don't filter out null IDs, but generate temporary ones
+    const beforeNullFilter = result.length;
+    result = result.filter(task => task !== null && task !== undefined);
+    
+    // Assign temporary IDs to tasks with null IDs
+    result.forEach((task, index) => {
+      if (!task.id) {
+        console.log(`Assigning temporary ID to task: ${task.title}`);
+        task.id = `temp-${Date.now()}-${index}`;
+      }
+    });
+    
+    console.log(`After null check: ${result.length} tasks (removed ${beforeNullFilter - result.length})`);
+    
+    // Apply text search if any
+    if (searchQuery.trim()) {
+      const beforeSearch = result.length;
+      const searchTerm = searchQuery.toLowerCase();
+      
+      // First log which tasks match the search query
+      console.log(`Searching for: "${searchTerm}"`);
+      result.forEach(task => {
+        const titleMatch = task.title.toLowerCase().includes(searchTerm);
+        const descMatch = task.description && task.description.toLowerCase().includes(searchTerm);
+        console.log(`Task ${task.id}: "${task.title}" - Title match: ${titleMatch}, Desc match: ${descMatch}`);
+      });
+      
+      // Then perform the filtering
+      result = result.filter(task => 
+        task.title.toLowerCase().includes(searchTerm) ||
+        (task.description && task.description.toLowerCase().includes(searchTerm))
       );
+      console.log(`After search filter: ${result.length} tasks (removed ${beforeSearch - result.length})`);
     }
     
-    // Apply filters
-    if (filter.status === 'completed') {
-      filteredTasks = filteredTasks.filter(task => task.completed);
-    } else if (filter.status === 'pending') {
-      filteredTasks = filteredTasks.filter(task => !task.completed);
+    // Apply category filter if selected
+    if (filter.status && filter.status.length > 0) {
+      const beforeStatus = result.length;
+      result = result.filter(task => {
+        if (filter.status?.includes('completed')) {
+          if (task.completed) return true;
+        }
+        if (filter.status?.includes('pending')) {
+          if (!task.completed) return true;
+        }
+        return false;
+      });
+      console.log(`After status filter: ${result.length} tasks (removed ${beforeStatus - result.length})`);
     }
     
-    if (filter.priority) {
-      filteredTasks = filteredTasks.filter(task => task.priority === filter.priority);
+    // Apply priority filters
+    if (filter.priority && filter.priority.length > 0) {
+      const beforePriority = result.length;
+      result = result.filter(task => 
+        filter.priority?.includes(task.priority || 'medium')
+      );
+      console.log(`After priority filter: ${result.length} tasks (removed ${beforePriority - result.length})`);
+    }
+    
+    // Apply date range filter
+    if (filter.dueDateRange?.start || filter.dueDateRange?.end) {
+      const beforeDate = result.length;
+      result = result.filter(task => {
+        if (!task.dueDate) return false;
+        
+        const taskDate = new Date(task.dueDate);
+        const startOk = filter.dueDateRange?.start 
+          ? taskDate >= new Date(filter.dueDateRange.start) 
+          : true;
+        const endOk = filter.dueDateRange?.end 
+          ? taskDate <= new Date(filter.dueDateRange.end) 
+          : true;
+        
+        return startOk && endOk;
+      });
+      console.log(`After date range filter: ${result.length} tasks (removed ${beforeDate - result.length})`);
+    }
+    
+    // Apply tag filters if available
+    if (filter.tags && filter.tags.length > 0) {
+      const beforeTags = result.length;
+      result = result.filter(task => {
+        // Safe check for tags property which might not exist on Task type
+        const taskTags = (task as any).tags;
+        return taskTags && Array.isArray(taskTags) && 
+          taskTags.some((tag: string) => filter.tags?.includes(tag));
+      });
+      console.log(`After tag filter: ${result.length} tasks (removed ${beforeTags - result.length})`);
     }
     
     // Apply sorting
-    filteredTasks.sort((a, b) => {
+    const beforeSort = result.length;
+    result.sort((a, b) => {
       if (sortBy === 'priority') {
         const priorityOrder = { high: 3, medium: 2, low: 1 };
         const aPriority = a.priority ? priorityOrder[a.priority] || 0 : 0;
@@ -135,12 +321,27 @@ const TasksScreen = () => {
         return sortOrder === 'asc' ? aDate - bDate : bDate - aDate;
       }
     });
+    console.log(`After sorting: ${result.length} tasks (should be same as before)`);
     
-    return filteredTasks;
+    console.log(`Final filtered task count: ${result.length}`);
+    return result;
+  }, [tasks, sortBy, sortOrder, filter, searchQuery]);
+
+  // Count active filters
+  const getActiveFiltersCount = () => {
+    let count = 0;
+    if (filter.status?.length) count += filter.status.length;
+    if (filter.priority?.length) count += filter.priority.length;
+    if (filter.dueDateRange?.start || filter.dueDateRange?.end) count++;
+    if (filter.tags?.length) count += filter.tags.length;
+    return count;
   };
 
   const renderTaskView = () => {
-    const filteredTasks = getFilteredTasks();
+    const filteredTasks = getFilteredTasks;
+    
+    // Log the filtered tasks to see what's being passed to the components
+    console.log(`renderTaskView: Showing ${filteredTasks.length} tasks from ${tasks.length} total`);
     
     if (filteredTasks.length === 0) {
       return (
@@ -148,7 +349,7 @@ const TasksScreen = () => {
           <MaterialIcons name="assignment" size={64} color={colors.primary} />
           <Text style={styles.emptyText}>No tasks found</Text>
           <Text style={styles.emptySubtext}>
-            {searchQuery ? 'Try adjusting your search' : 'Create a new task to get started'}
+            {searchQuery || getActiveFiltersCount() > 0 ? 'Try adjusting your filters' : 'Create a new task to get started'}
           </Text>
           <Button 
             mode="contained" 
@@ -157,6 +358,15 @@ const TasksScreen = () => {
           >
             Create Task
           </Button>
+          {(searchQuery || getActiveFiltersCount() > 0) && (
+            <Button 
+              mode="outlined" 
+              onPress={resetFilters}
+              style={[styles.createButton, { marginTop: 8 }]}
+            >
+              Reset Filters
+            </Button>
+          )}
         </View>
       );
     }
@@ -181,6 +391,11 @@ const TasksScreen = () => {
           />
         );
       default:
+        // Log all tasks passed to TaskList
+        filteredTasks.forEach((task, index) => {
+          console.log(`Task to display ${index + 1}: ID=${task.id}, Title=${task.title}`);
+        });
+        
         return (
           <TaskList
             tasks={filteredTasks}
@@ -191,6 +406,165 @@ const TasksScreen = () => {
         );
     }
   };
+
+  // Render active filter chips
+  const renderFilterChips = () => {
+    if (getActiveFiltersCount() === 0) return null;
+    
+    return (
+      <View style={styles.filterChipsContainer}>
+        <View style={styles.chipScrollContainer}>
+          {filter.status?.map((status) => (
+            <Chip 
+              key={`status-${status}`}
+              style={styles.filterChip} 
+              onClose={() => toggleFilter('status', status)}
+              icon={status === 'completed' ? 'check-circle' : 'clock-outline'}
+            >
+              {status === 'completed' ? 'Completed' : 'Pending'}
+            </Chip>
+          ))}
+          
+          {filter.priority?.map((priority) => (
+            <Chip 
+              key={`priority-${priority}`}
+              style={styles.filterChip} 
+              onClose={() => toggleFilter('priority', priority)}
+              icon={priority === 'high' ? 'arrow-up' : priority === 'medium' ? 'minus' : 'arrow-down'}
+            >
+              {priority.charAt(0).toUpperCase() + priority.slice(1)} Priority
+            </Chip>
+          ))}
+          
+          {(filter.dueDateRange?.start || filter.dueDateRange?.end) && (
+            <Chip 
+              key="date-range"
+              style={styles.filterChip} 
+              onClose={() => setFilter(prev => ({ ...prev, dueDateRange: {} }))}
+              icon="calendar-range"
+            >
+              Date Filter
+            </Chip>
+          )}
+          
+          {filter.tags?.map((tag) => (
+            <Chip 
+              key={`tag-${tag}`}
+              style={styles.filterChip} 
+              onClose={() => setFilter(prev => ({ 
+                ...prev, 
+                tags: prev.tags?.filter(t => t !== tag) 
+              }))}
+              icon="tag"
+            >
+              {tag}
+            </Chip>
+          ))}
+
+          <Chip 
+            key="reset"
+            style={styles.filterChip} 
+            onPress={resetFilters}
+            icon="filter-remove"
+          >
+            Reset All
+          </Chip>
+        </View>
+      </View>
+    );
+  };
+
+  // Format date for display
+  const formatDate = (date) => {
+    if (!date) return 'Select Date';
+    return date.toLocaleDateString();
+  };
+
+  // Add a function to force-fetch all tasks (meant to be called manually, not in useEffect)
+  const forceDisplayAllTasks = async () => {
+    try {
+      console.log('Force displaying all tasks (manual refresh)...');
+      
+      // Reset all filters
+      setFilter({
+        status: [],
+        priority: [],
+        dueDateRange: {},
+        tags: []
+      });
+      setSearchQuery('');
+      
+      // Make sure we're in list view for better visibility
+      setViewMode('list');
+      
+      // Call fetchTasks without any filters
+      await fetchTasks();
+      
+      // Log the tasks we have
+      console.log(`Database has ${tasks.length} tasks total`);
+      console.log(`Filtered tasks count: ${getFilteredTasks.length}`);
+      console.log(`Difference: ${tasks.length - getFilteredTasks.length} tasks are being filtered out`);
+      
+      // Log the search query to ensure it's empty
+      console.log(`Current search query: "${searchQuery}"`);
+      
+      // Debug specific filter conditions
+      console.log('Current filters:', JSON.stringify(filter));
+    } catch (error) {
+      console.error('Error displaying all tasks:', error);
+    }
+  };
+  
+  // Call the function when component mounts
+  useEffect(() => {
+    forceDisplayAllTasks();
+  }, []);
+
+  // Add a function to debug task filtering
+  const debugTaskFiltering = () => {
+    console.log('=== DEBUG TASK FILTERING ===');
+    
+    // Check if the number of tasks matches expected
+    console.log(`Database has ${tasks.length} total tasks`);
+    console.log(`${getFilteredTasks.length} tasks after filtering`);
+    
+    // Log search query
+    console.log(`Current search query: "${searchQuery}"`);
+    
+    // Check if any filters are active
+    console.log('Current filters:', filter);
+    
+    // Get the IDs of all tasks in the database
+    const allTaskIds = tasks.map(t => t.id);
+    
+    // Get the IDs of all filtered tasks
+    const filteredTaskIds = getFilteredTasks.map(t => t.id);
+    
+    // Find which tasks are missing from filtered tasks
+    const missingTaskIds = allTaskIds.filter(id => !filteredTaskIds.includes(id));
+    console.log(`Missing task IDs: ${missingTaskIds.join(', ')}`);
+    
+    // Log details about missing tasks to identify patterns
+    missingTaskIds.forEach(id => {
+      const task = tasks.find(t => t.id === id);
+      console.log(`Missing task: ID=${id}, Title=${task?.title}, Priority=${task?.priority}, Completed=${task?.completed}`);
+      
+      // Check for null or undefined properties
+      const taskAny = task as any;
+      if (!task?.id) console.log(`- Missing ID`);
+      if (!task?.title) console.log(`- Missing title`);
+      if (taskAny.tags && taskAny.tags.length === 0) console.log(`- Empty tags array`);
+    });
+    
+    console.log('=== END DEBUG ===');
+  };
+  
+  // Add a button to trigger the debug function
+  useEffect(() => {
+    // Call debug function after a short delay to ensure all state is updated
+    const debugTimer = setTimeout(debugTaskFiltering, 500);
+    return () => clearTimeout(debugTimer);
+  }, [tasks, getFilteredTasks.length]);
 
   return (
     <View style={styles.container}>
@@ -213,60 +587,12 @@ const TasksScreen = () => {
           />
           
           <View style={styles.filterContainer}>
-            <Menu
-              visible={showFilterMenu}
-              onDismiss={() => setShowFilterMenu(false)}
-              anchor={
-                <IconButton
-                  icon="filter-variant"
-                  size={24}
-                  onPress={() => setShowFilterMenu(true)}
-                />
-              }
-            >
-              <Menu.Item 
-                onPress={() => {
-                  setFilter({ ...filter, status: 'pending' });
-                  setShowFilterMenu(false);
-                }}
-                title="Show Pending"
-                leadingIcon="clock-outline"
-              />
-              <Menu.Item 
-                onPress={() => {
-                  setFilter({ ...filter, status: 'completed' });
-                  setShowFilterMenu(false);
-                }}
-                title="Show Completed"
-                leadingIcon="check-circle"
-              />
-              <Divider />
-              <Menu.Item 
-                onPress={() => {
-                  setFilter({ ...filter, priority: 'high' });
-                  setShowFilterMenu(false);
-                }}
-                title="High Priority"
-                leadingIcon="arrow-upward"
-              />
-              <Menu.Item 
-                onPress={() => {
-                  setFilter({ ...filter, priority: 'medium' });
-                  setShowFilterMenu(false);
-                }}
-                title="Medium Priority"
-                leadingIcon="remove"
-              />
-              <Menu.Item 
-                onPress={() => {
-                  setFilter({ ...filter, priority: 'low' });
-                  setShowFilterMenu(false);
-                }}
-                title="Low Priority"
-                leadingIcon="arrow-downward"
-              />
-            </Menu>
-
+            <IconButton
+              icon={sortOrder === 'asc' ? 'sort-ascending' : 'sort-descending'}
+              size={24}
+              onPress={toggleSortOrder}
+            />
+            
             <Menu
               visible={showSortMenu}
               onDismiss={() => setShowSortMenu(false)}
@@ -303,9 +629,124 @@ const TasksScreen = () => {
                 leadingIcon="clock"
               />
             </Menu>
+            
+            <TouchableOpacity 
+              style={styles.filterButton}
+              onPress={() => {
+                console.log('Filter button pressed');
+                setShowFilterMenu(!showFilterMenu);
+              }}
+            >
+              <View style={styles.filterButtonContent}>
+                <MaterialCommunityIcons name="filter-variant" size={24} color={colors.primary} />
+                {getActiveFiltersCount() > 0 && (
+                  <View style={styles.filterBadge}>
+                    <Text style={styles.filterBadgeText}>{getActiveFiltersCount()}</Text>
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
+            
+            <IconButton
+              icon="refresh"
+              size={24}
+              onPress={forceDisplayAllTasks}
+            />
+            
+            <IconButton
+              icon="bug"
+              size={24}
+              onPress={async () => {
+                console.log("Debug task creation test");
+                const testTask = {
+                  title: "Debug Test Task " + new Date().toLocaleTimeString(),
+                  description: "Created for debugging",
+                  priority: "medium" as "high" | "medium" | "low",
+                  completed: false
+                };
+                await handleCreateTask(testTask);
+                // Wait for a moment and then refresh tasks
+                setTimeout(() => {
+                  fetchTasks();
+                }, 1000);
+              }}
+            />
+            
+            <View style={{
+              backgroundColor: tasks.length !== getFilteredTasks.length ? 'red' : 'green',
+              padding: 8,
+              borderRadius: 4,
+              marginLeft: 8
+            }}>
+              <Text style={{ color: 'white', fontWeight: 'bold' }}>
+                {getFilteredTasks.length}/{tasks.length}
+              </Text>
+            </View>
+            
+            <Menu
+              visible={showFilterMenu}
+              onDismiss={() => {
+                console.log('Dismissing filter menu');
+                setShowFilterMenu(false);
+              }}
+              anchor={<View style={{ width: 1, height: 1 }} />}
+              style={styles.filterMenu}
+            >
+              <Menu.Item 
+                onPress={() => toggleFilter('status', 'pending')}
+                title="Pending Tasks"
+                leadingIcon="clock-outline"
+                trailingIcon={isFilterActive('status', 'pending') ? 'check' : undefined}
+              />
+              <Menu.Item 
+                onPress={() => toggleFilter('status', 'completed')}
+                title="Completed Tasks"
+                leadingIcon="check-circle"
+                trailingIcon={isFilterActive('status', 'completed') ? 'check' : undefined}
+              />
+              <Divider />
+              <Menu.Item 
+                onPress={() => toggleFilter('priority', 'high')}
+                title="High Priority"
+                leadingIcon="arrow-up"
+                trailingIcon={isFilterActive('priority', 'high') ? 'check' : undefined}
+              />
+              <Menu.Item 
+                onPress={() => toggleFilter('priority', 'medium')}
+                title="Medium Priority"
+                leadingIcon="minus"
+                trailingIcon={isFilterActive('priority', 'medium') ? 'check' : undefined}
+              />
+              <Menu.Item 
+                onPress={() => toggleFilter('priority', 'low')}
+                title="Low Priority"
+                leadingIcon="arrow-down"
+                trailingIcon={isFilterActive('priority', 'low') ? 'check' : undefined}
+              />
+              <Divider />
+              <Menu.Item 
+                onPress={() => {
+                  setShowFilterMenu(false);
+                  setShowDateFilterDialog(true);
+                }}
+                title="Date Range"
+                leadingIcon="calendar-range"
+                trailingIcon={(filter.dueDateRange?.start || filter.dueDateRange?.end) ? 'check' : undefined}
+              />
+              <Divider />
+              <Menu.Item 
+                onPress={() => {
+                  resetFilters();
+                  setShowFilterMenu(false);
+                }}
+                title="Reset All Filters"
+                leadingIcon="filter-remove"
+              />
+            </Menu>
           </View>
         </View>
 
+        {renderFilterChips()}
         {renderTaskView()}
       </View>
 
@@ -331,7 +772,90 @@ const TasksScreen = () => {
             onClose={() => setShowPomodoro(false)}
           />
         </Modal>
+
+        <Dialog visible={showDateFilterDialog} onDismiss={() => setShowDateFilterDialog(false)}>
+          <Dialog.Title>Filter by Date Range</Dialog.Title>
+          <Dialog.Content>
+            <View style={{gap: 16}}>
+              <View style={styles.datePickerRow}>
+                <Text>Start Date: </Text>
+                <Button 
+                  mode="outlined" 
+                  onPress={() => setShowStartDatePicker(true)}
+                  style={styles.dateButton}
+                >
+                  {formatDate(filter.dueDateRange?.start)}
+                </Button>
+                {showStartDatePicker && (
+                  <DateTimePicker
+                    value={filter.dueDateRange?.start || new Date()}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={(event, selectedDate) => {
+                      setShowStartDatePicker(false);
+                      if (selectedDate) {
+                        setFilter(prev => ({
+                          ...prev,
+                          dueDateRange: {
+                            ...prev.dueDateRange,
+                            start: selectedDate
+                          }
+                        }));
+                      }
+                    }}
+                  />
+                )}
+              </View>
+              
+              <View style={styles.datePickerRow}>
+                <Text>End Date: </Text>
+                <Button 
+                  mode="outlined" 
+                  onPress={() => setShowEndDatePicker(true)}
+                  style={styles.dateButton}
+                >
+                  {formatDate(filter.dueDateRange?.end)}
+                </Button>
+                {showEndDatePicker && (
+                  <DateTimePicker
+                    value={filter.dueDateRange?.end || new Date()}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={(event, selectedDate) => {
+                      setShowEndDatePicker(false);
+                      if (selectedDate) {
+                        setFilter(prev => ({
+                          ...prev,
+                          dueDateRange: {
+                            ...prev.dueDateRange,
+                            end: selectedDate
+                          }
+                        }));
+                      }
+                    }}
+                  />
+                )}
+              </View>
+            </View>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setFilter(prev => ({...prev, dueDateRange: {}}))} style={{marginRight: 8}}>Clear</Button>
+            <Button onPress={() => setShowDateFilterDialog(false)}>Cancel</Button>
+            <Button onPress={() => setShowDateFilterDialog(false)} mode="contained">Apply</Button>
+          </Dialog.Actions>
+        </Dialog>
       </Portal>
+      
+      {/* Direct Pomodoro Timer */}
+      {showPomodoro && (
+        <View style={styles.pomodoroContainer}>
+          <PomodoroTimer
+            initialTaskId={pomodoroTaskId}
+            onClose={() => setShowPomodoro(false)}
+            showCloseButton={true}
+          />
+        </View>
+      )}
     </View>
   );
 };
@@ -355,11 +879,50 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   filterContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  filterButton: {
+    padding: 8,
+    marginLeft: 4,
+  },
+  filterButtonContent: {
+    position: 'relative',
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    backgroundColor: 'red',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  filterBadgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  filterMenu: {
+    marginTop: 50,
+    marginRight: 10,
+  },
+  filterChipsContainer: {
+    marginBottom: 12,
+  },
+  chipScrollContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
+  filterChip: {
+    marginRight: 8,
+    marginBottom: 8,
   },
   emptyContainer: {
     flex: 1,
@@ -383,10 +946,18 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   modalContent: {
+    margin: 16,
+    borderRadius: 8,
     backgroundColor: 'white',
-    padding: 20,
-    margin: 20,
-    borderRadius: 12,
+  },
+  datePickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  dateButton: {
+    flex: 1,
+    marginLeft: 8,
   },
   gridList: {
     padding: 4,
@@ -459,6 +1030,14 @@ const styles = StyleSheet.create({
     margin: 0,
     padding: 0,
   },
+  pomodoroContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100,
+  }
 });
 
 export default TasksScreen;
