@@ -19,7 +19,7 @@ import {
   FAB
 } from 'react-native-paper';
 import { TaskTemplate } from '../types/Task';
-import useTaskStore from '../stores/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 import { useTheme } from '../theme/ThemeProvider';
 import { MaterialIcons, AntDesign, Ionicons } from '@expo/vector-icons';
 import databaseService from '../database/DatabaseService';

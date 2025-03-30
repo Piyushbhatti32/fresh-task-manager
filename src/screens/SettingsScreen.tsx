@@ -3,7 +3,7 @@ import { View, StyleSheet, ScrollView, Alert, Switch } from 'react-native';
 import { Text, List, Divider, Button, Dialog, Portal, RadioButton, Card } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import { SettingsScreenNavigationProp } from '../navigation/types';
-import useTaskStore from '../stores/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 import { useTheme } from '../theme/ThemeProvider';
 import { ThemeMode } from '../theme/ThemeTypes';
 

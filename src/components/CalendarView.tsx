@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, FlatList } from '
 import { Calendar } from 'react-native-calendars';
 import { format, isSameDay, isToday, parseISO } from 'date-fns';
 import { useTheme } from '../theme/ThemeProvider';
-import useTaskStore from '../stores/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 import { Task } from '../types/Task';
 import { MaterialIcons } from '@expo/vector-icons';
 
@@ -18,7 +18,7 @@ interface MarkedDates {
 }
 
 interface CalendarViewProps {
-  onTaskPress?: (task: Task) => void;
+  onTaskPress?: (taskId: string) => void;
   onToggleCompletion?: (taskId: string) => void;
   onAddTask?: (date: string) => void;
 }
@@ -176,7 +176,7 @@ export default function CalendarView({
             opacity: item.completed ? 0.7 : 1
           }
         ]}
-        onPress={() => onTaskPress && onTaskPress(item)}
+        onPress={() => onTaskPress && onTaskPress(item.id)}
       >
         <View style={styles.taskStatusContainer}>
           <TouchableOpacity

@@ -8,7 +8,7 @@ import {
   Alert
 } from 'react-native';
 import { SubTask } from '../types/Task';
-import useTaskStore from '../stores/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 import { useTheme } from '../theme/ThemeProvider';
 import { Ionicons } from '@expo/vector-icons';
 import { generateId } from '../utils/generateId';

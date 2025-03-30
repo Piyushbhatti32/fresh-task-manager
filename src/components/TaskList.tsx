@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { format } from 'date-fns';
 import { Task, SubTask } from '../types/Task';
-import useTaskStore from '../stores/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 import { useTheme } from '../theme/ThemeProvider';
 import { Ionicons, MaterialIcons, AntDesign } from '@expo/vector-icons';
 import databaseService from '../database/DatabaseService';
@@ -19,6 +19,7 @@ import AnimatedEmptyState from './AnimatedEmptyState';
 interface TaskListProps {
   onTaskPress: (taskId: string) => void;
   onStartPomodoro?: (taskId: string) => void;
+  onToggle?: (taskId: string) => void;
   filter?: {
     status?: 'completed' | 'pending';
     priority?: 'high' | 'medium' | 'low';
@@ -26,14 +27,17 @@ interface TaskListProps {
   };
   sortBy?: 'dueDate' | 'priority' | 'createdAt';
   sortOrder?: 'asc' | 'desc';
+  tasks?: Task[];
 }
 
 export default function TaskList({ 
   onTaskPress, 
   onStartPomodoro,
+  onToggle,
   filter, 
   sortBy = 'dueDate', 
-  sortOrder = 'asc' 
+  sortOrder = 'asc',
+  tasks: providedTasks
 }: TaskListProps) {
   const { theme, isDark } = useTheme();
   const { tasks: storeTasks, isLoading, error, fetchTasks, markTaskAsCompleted } = useTaskStore();
@@ -133,13 +137,14 @@ export default function TaskList({
 
   return (
     <FlatList
-      data={tasks}
+      data={providedTasks || tasks}
       keyExtractor={(item) => item.id}
       renderItem={({ item }) => (
         <TaskItem
           task={item}
           onPress={() => onTaskPress(item.id)}
-          onStartPomodoro={onStartPomodoro}
+          onStartPomodoro={onStartPomodoro ? (taskId) => onStartPomodoro(taskId) : undefined}
+          onToggle={onToggle ? () => onToggle(item.id) : undefined}
         />
       )}
       style={styles.list}

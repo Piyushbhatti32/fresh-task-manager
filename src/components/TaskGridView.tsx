@@ -7,19 +7,20 @@ import {
   TouchableOpacity,
   Dimensions,
   useWindowDimensions,
-  Modal
+  Modal,
+  Image
 } from 'react-native';
 import { format } from 'date-fns';
 import { Task, SubTask } from '../types/Task';
 import { useTheme } from '../theme/ThemeProvider';
-import { Ionicons, MaterialIcons, AntDesign } from '@expo/vector-icons';
-import { TaskCard } from './TaskCard';
+import { Ionicons, MaterialIcons, AntDesign, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Card, Surface, Badge, Avatar, IconButton, Chip } from 'react-native-paper';
 
 interface TaskGridViewProps {
   tasks: Task[];
-  onTaskPress: (task: Task) => void;
+  onTaskPress: (taskId: string) => void;
   onEditTask?: (task: Task) => void;
-  onToggleCompletion: (task: Task) => void;
+  onToggleCompletion: (taskId: string) => void;
   onToggleSubtaskCompletion?: (taskId: string, subtaskId: string) => void;
   EmptyComponent?: React.ComponentType<any>;
   isMultiSelectMode?: boolean;
@@ -47,32 +48,72 @@ export default function TaskGridView({
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [showSubtasks, setShowSubtasks] = useState(false);
   
-  // Calculate size based on screen width and apply a consistent fixed width to all grid items
+  // Enhanced grid layout configuration
   const numColumns = 2;
-  const spacing = 16; // Reduce spacing between items
-  const verticalSpacing = 24; // Vertical spacing between items
-  const leftPadding = 6; // Further reduce left padding
-  const rightPadding = 16; // Keep right padding as is
+  const spacing = 8; // Reduced spacing between items
+  const leftPadding = 4; // Reduced left padding
+  const rightPadding = 4; // Reduced right padding
   
-  // Total available width minus all padding
-  const availableWidth = windowDimensions.width - leftPadding - rightPadding - spacing;
-  
-  // Calculate item width to be slightly larger
-  const itemWidth = (availableWidth / numColumns) * 0.95; // Increase from 0.9 to 0.95
-  
-  // Distribute remaining space evenly
-  const horizontalGap = (availableWidth - (itemWidth * numColumns)) / (numColumns + 1);
+  // Calculate available width and item dimensions
+  const availableWidth = windowDimensions.width - leftPadding - rightPadding - (spacing * (numColumns - 1));
+  const itemWidth = availableWidth / numColumns;
   
   // Format the due date
-  const formatDueDate = (date?: Date) => {
-    if (!date) return 'No date set';
-    return format(date, 'MMM d, yyyy');
+  const formatDueDate = (date?: Date | string) => {
+    if (!date) return '';
+    return format(new Date(date), 'MMM d');
+  };
+
+  // Get priority color
+  const getPriorityColor = (priority?: string) => {
+    switch (priority) {
+      case 'high': return theme.colors.error;
+      case 'medium': return theme.colors.warning;
+      case 'low': return theme.colors.success;
+      default: return theme.colors.outline;
+    }
   };
   
-  // Handle opening the subtasks modal
-  const handleShowSubtasks = (task: Task) => {
-    setSelectedTask(task);
-    setShowSubtasks(true);
+  // Get category or tag color
+  const getTagColor = (index: number) => {
+    const colors = [
+      theme.colors.primary,
+      theme.colors.accent,
+      theme.colors.secondary,
+      theme.colors.info
+    ];
+    return colors[index % colors.length];
+  };
+
+  // Generate avatar for task based on title
+  const getTaskAvatar = (task: Task) => {
+    if (!task.title) return null;
+    
+    const initials = task.title
+      .split(' ')
+      .slice(0, 2)
+      .map(word => word[0])
+      .join('')
+      .toUpperCase();
+      
+    return (
+      <Avatar.Text 
+        size={30} 
+        label={initials} 
+        color="#fff"
+        style={{ backgroundColor: getPriorityColor(task.priority) }}
+      />
+    );
+  };
+  
+  // Get subtasks progress
+  const getSubtasksProgress = (task: Task) => {
+    if (!task.subtasks || task.subtasks.length === 0) return null;
+    
+    const completed = task.subtasks.filter(st => st.completed).length;
+    const total = task.subtasks.length;
+    
+    return { completed, total, percentage: (completed / total) * 100 };
   };
   
   // Handle subtask completion toggle
@@ -82,6 +123,171 @@ export default function TaskGridView({
     }
   };
   
+  // Render each task card in the grid
+  const renderItem = ({ item, index }: { item: Task, index: number }) => {
+    const isSelected = selectedTasks.includes(item.id);
+    const hasSubtasks = item.subtasks && item.subtasks.length > 0;
+    const subtasksProgress = getSubtasksProgress(item);
+    
+    // Handle toggle completion
+    const handleToggle = (e: any) => {
+      e.stopPropagation();
+      console.log('Toggle task completion for id:', item.id);
+      if (onToggleCompletion) {
+        onToggleCompletion(item.id);
+      }
+    };
+    
+    return (
+      <Surface 
+        style={[
+          styles.gridItem,
+          { 
+            width: itemWidth - spacing,
+            backgroundColor: theme.colors.surface,
+            marginLeft: index % numColumns !== 0 ? spacing : 0,
+            marginBottom: spacing,
+            borderColor: isSelected ? theme.colors.primary : 'transparent',
+            borderWidth: isSelected ? 2 : 0,
+          }
+        ]}
+        elevation={2}
+      >
+        <TouchableOpacity
+          style={styles.cardContent}
+          onPress={() => onTaskPress(item.id)}
+          onLongPress={() => onLongPress && onLongPress(item.id)}
+          delayLongPress={300}
+        >
+          {/* Status indicator */}
+          <View 
+            style={[
+              styles.statusIndicator, 
+              { 
+                backgroundColor: item.completed
+                  ? theme.colors.success
+                  : getPriorityColor(item.priority)
+              }
+            ]} 
+          />
+          
+          {/* Header with avatar and actions */}
+          <View style={styles.cardHeader}>
+            {getTaskAvatar(item)}
+            
+            <View style={styles.headerActions}>
+              {hasSubtasks && (
+                <IconButton 
+                  icon="playlist-check" 
+                  size={18}
+                  style={styles.actionButton}
+                  onPress={() => handleShowSubtasks(item)}
+                />
+              )}
+              
+              <IconButton 
+                icon={item.completed ? "check-circle" : "circle-outline"}
+                size={18}
+                iconColor={item.completed ? theme.colors.success : theme.colors.text}
+                style={styles.actionButton}
+                onPress={handleToggle}
+              />
+            </View>
+          </View>
+          
+          {/* Title and description */}
+          <View style={styles.textContent}>
+            <Text 
+              style={[
+                styles.title,
+                { color: theme.colors.text },
+                item.completed && styles.completedText
+              ]}
+              numberOfLines={2}
+            >
+              {item.title}
+            </Text>
+            
+            {item.description ? (
+              <Text 
+                style={[
+                  styles.description,
+                  { color: theme.colors.secondary },
+                  item.completed && styles.completedText
+                ]}
+                numberOfLines={2}
+              >
+                {item.description}
+              </Text>
+            ) : null}
+          </View>
+          
+          {/* Subtasks progress bar */}
+          {subtasksProgress && (
+            <View style={styles.progressContainer}>
+              <View style={styles.progressWrapper}>
+                <View 
+                  style={[
+                    styles.progressBar,
+                    { width: `${subtasksProgress.percentage}%`, backgroundColor: theme.colors.primary }
+                  ]}
+                />
+              </View>
+              <Text style={[styles.progressText, { color: theme.colors.secondary }]}>
+                {subtasksProgress.completed}/{subtasksProgress.total}
+              </Text>
+            </View>
+          )}
+          
+          {/* Footer with metadata */}
+          <View style={styles.cardFooter}>
+            {item.dueDate && (
+              <View style={styles.metaItem}>
+                <MaterialCommunityIcons 
+                  name="clock-outline" 
+                  size={14} 
+                  color={theme.colors.secondary} 
+                />
+                <Text style={[styles.metaText, { color: theme.colors.secondary }]}>
+                  {formatDueDate(item.dueDate)}
+                </Text>
+              </View>
+            )}
+            
+            {item.tags && item.tags.length > 0 && (
+              <Chip 
+                style={[styles.tagChip, { backgroundColor: getTagColor(0) }]}
+                textStyle={{ color: "#fff", fontSize: 10 }}
+                compact
+              >
+                {item.tags[0]}
+              </Chip>
+            )}
+            
+            {onStartPomodoro && (
+              <IconButton
+                icon="timer-outline"
+                size={16}
+                iconColor={theme.colors.primary}
+                style={styles.timerButton}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onStartPomodoro(item.id);
+                }}
+              />
+            )}
+          </View>
+        </TouchableOpacity>
+      </Surface>
+    );
+  };
+  
+  // Handle opening the subtasks modal
+  const handleShowSubtasks = (task: Task) => {
+    setSelectedTask(task);
+    setShowSubtasks(true);
+  };
+  
   // Render a subtask in the modal
   const renderSubtask = (subtask: SubTask, taskId: string) => {
     return (
@@ -89,7 +295,10 @@ export default function TaskGridView({
         key={subtask.id}
         style={[
           styles.subtaskItem,
-          { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)' }
+          { 
+            backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+            borderRadius: 8 
+          }
         ]}
         onPress={() => handleToggleSubtask(taskId, subtask.id)}
       >
@@ -97,7 +306,7 @@ export default function TaskGridView({
           <TouchableOpacity
             style={[
               styles.subtaskCheckbox,
-              { borderColor: theme.colors.secondary },
+              { borderColor: theme.colors.primary },
               subtask.completed && { backgroundColor: theme.colors.success }
             ]}
             onPress={() => handleToggleSubtask(taskId, subtask.id)}
@@ -122,31 +331,6 @@ export default function TaskGridView({
     );
   };
   
-  // Render each task card
-  const renderItem = ({ item }: { item: Task }) => {
-    // Check if this task is selected in multi-select mode
-    const isSelected = selectedTasks.includes(item.id);
-    // Check if task has subtasks
-    const hasSubtasks = item.subtasks && item.subtasks.length > 0;
-    
-    return (
-      <View style={[
-        styles.gridItemContainer,
-        { 
-          width: itemWidth,
-          marginBottom: verticalSpacing,
-          marginHorizontal: horizontalGap // Add gap on both sides
-        }
-      ]}>
-        <TaskCard
-          task={item}
-          onPress={() => onTaskPress(item)}
-          onStartPomodoro={() => onStartPomodoro(item.id)}
-        />
-      </View>
-    );
-  };
-  
   // Subtasks modal
   const renderSubtasksModal = () => {
     if (!selectedTask) return null;
@@ -162,23 +346,23 @@ export default function TaskGridView({
           styles.modalContainer,
           { backgroundColor: 'rgba(0,0,0,0.5)' }
         ]}>
-          <View style={[
+          <Surface style={[
             styles.modalContent,
             { 
               backgroundColor: theme.colors.surface,
-              borderColor: theme.colors.secondary
             }
-          ]}>
+          ]}
+          elevation={4}
+          >
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
-                Subtasks: {selectedTask.title}
+                {selectedTask.title}
               </Text>
-              <TouchableOpacity
-                style={styles.closeButton}
+              <IconButton
+                icon="close"
+                size={20}
                 onPress={() => setShowSubtasks(false)}
-              >
-                <AntDesign name="close" size={20} color={theme.colors.text} />
-              </TouchableOpacity>
+              />
             </View>
             
             <View style={styles.modalBody}>
@@ -204,7 +388,7 @@ export default function TaskGridView({
                 <Text style={styles.modalButtonText}>Close</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </Surface>
         </View>
       </Modal>
     );
@@ -221,18 +405,16 @@ export default function TaskGridView({
         contentContainerStyle={[
           styles.listContainer,
           { 
-            paddingLeft: leftPadding,
-            paddingRight: rightPadding,
-            paddingTop: 12,
-            paddingBottom: 16
+            paddingHorizontal: 4,
+            paddingVertical: 8
           }
         ]}
         columnWrapperStyle={{ 
           justifyContent: 'flex-start',
-          marginHorizontal: 0
         }}
         ListEmptyComponent={EmptyComponent || (
           <View style={styles.emptyContainer}>
+            <MaterialCommunityIcons name="clipboard-text-outline" size={48} color={theme.colors.secondary} />
             <Text style={[styles.emptyText, { color: theme.colors.text }]}>
               No tasks to display
             </Text>
@@ -249,145 +431,105 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContainer: {
-    paddingTop: 8,
-    paddingBottom: 24,
+    flexGrow: 1,
   },
-  gridItemContainer: {
-    marginBottom: 16,
-  },
-  taskCard: {
+  gridItem: {
     borderRadius: 12,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    height: 180,
     overflow: 'hidden',
   },
-  taskContent: {
-    flex: 1,
-    padding: 14,
-    justifyContent: 'space-between',
+  cardContent: {
+    padding: 0,
+    height: 170,
+    position: 'relative',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 10,
-  },
-  priorityBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  priorityText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 12,
-  },
-  checkboxContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 4,
-    borderWidth: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'transparent',
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    flex: 1,
-    marginRight: 4,
-  },
-  completedTitle: {
-    textDecorationLine: 'line-through',
-    opacity: 0.7,
-  },
-  description: {
-    fontSize: 14,
-    marginBottom: 8,
-    flex: 1,
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 'auto',
-  },
-  footerLeft: {
-    flex: 2,
-    overflow: 'hidden',
-    paddingRight: 8,
-  },
-  footerRight: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-  },
-  date: {
-    fontSize: 12,
-    fontWeight: '500',
-    flexShrink: 1,
-  },
-  completedOverlay: {
+  statusIndicator: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-    justifyContent: 'center',
+    height: 4,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    zIndex: -1,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  headerActions: {
+    flexDirection: 'row',
+  },
+  actionButton: {
+    margin: 0,
+    padding: 0,
+    width: 28,
+    height: 28,
+  },
+  textContent: {
+    paddingHorizontal: 12,
+    flex: 1,
+  },
+  title: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  description: {
+    fontSize: 12,
+    marginBottom: 4,
+    opacity: 0.8,
   },
   completedText: {
-    fontSize: 60,
-    color: 'rgba(0,0,0,0.1)',
-    fontWeight: 'bold',
+    textDecorationLine: 'line-through',
+    opacity: 0.7,
   },
-  editButton: {
-    padding: 4,
-    marginLeft: 8,
-  },
-  statusIndicator: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  progressText: {
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  subtasksButton: {
+  progressContainer: {
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-    marginLeft: 8,
+    marginBottom: 8,
   },
-  subtasksCount: {
-    fontSize: 11,
-    fontWeight: 'bold',
+  progressWrapper: {
+    flex: 1,
+    height: 4,
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginRight: 8,
   },
+  progressBar: {
+    height: '100%',
+  },
+  progressText: {
+    fontSize: 10,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  metaText: {
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  tagChip: {
+    height: 20,
+    marginLeft: 'auto',
+  },
+  timerButton: {
+    margin: 0,
+    padding: 0,
+    width: 24,
+    height: 24,
+  },
+  // Subtasks modal styles
   modalContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -396,22 +538,21 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     width: '90%',
-    maxHeight: '80%',
     borderRadius: 12,
-    borderWidth: 1,
     overflow: 'hidden',
+    maxHeight: '80%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.05)',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '600',
     flex: 1,
   },
   closeButton: {
@@ -423,9 +564,7 @@ const styles = StyleSheet.create({
   },
   modalFooter: {
     padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.05)',
-    alignItems: 'center',
+    alignItems: 'flex-end',
   },
   modalButton: {
     paddingVertical: 8,
@@ -433,15 +572,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   modalButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 14,
+    color: '#fff',
+    fontWeight: '500',
   },
   subtaskItem: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    marginBottom: 1,
-    borderRadius: 8,
+    marginBottom: 8,
+    padding: 10,
   },
   subtaskContent: {
     flexDirection: 'row',
@@ -450,11 +586,11 @@ const styles = StyleSheet.create({
   subtaskCheckbox: {
     width: 20,
     height: 20,
-    borderRadius: 4,
     borderWidth: 2,
+    borderRadius: 4,
+    marginRight: 10,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 8,
   },
   subtaskTitle: {
     fontSize: 14,
@@ -463,5 +599,15 @@ const styles = StyleSheet.create({
   completedSubtask: {
     textDecorationLine: 'line-through',
     opacity: 0.7,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    fontSize: 16,
+    marginTop: 12,
   },
 }); 

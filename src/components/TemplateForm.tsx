@@ -11,7 +11,7 @@ import {
   Platform
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import useTaskStore from '../stores/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 import { TaskTemplate, Priority } from '../types/Task';
 import { useTheme } from '../theme/ThemeProvider';
 import { AntDesign } from '@expo/vector-icons';

@@ -8,14 +8,14 @@ import {
   Animated
 } from 'react-native';
 import { format, addDays, isToday, isTomorrow, isYesterday, isAfter, isSameDay, isBefore } from 'date-fns';
-import useTaskStore from '../stores/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 import { useTheme } from '../theme/ThemeProvider';
 import { Task } from '../types/Task';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TaskCard } from './TaskCard';
 
 interface TimelineViewProps {
-  onTaskPress?: (task: Task) => void;
+  onTaskPress?: (taskId: string) => void;
   onToggleCompletion?: (taskId: string) => void;
   days?: number;
   tasks: Task[];
@@ -189,7 +189,7 @@ export default function TimelineView({
       <TaskCard
         key={task.id}
         task={task}
-        onPress={() => onTaskPress && onTaskPress(task)}
+        onPress={() => onTaskPress && onTaskPress(task.id)}
         onStartPomodoro={() => onStartPomodoro(task.id)}
       />
     );

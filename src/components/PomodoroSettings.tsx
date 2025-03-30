@@ -9,7 +9,7 @@ import {
   Switch,
   ScrollView
 } from 'react-native';
-import useTaskStore from '../stores/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 import { PomodoroSettings as PomodoroSettingsType } from '../types/Task';
 import { useTheme } from '../theme/ThemeProvider';
 import { Ionicons } from '@expo/vector-icons';

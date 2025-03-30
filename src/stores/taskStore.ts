@@ -52,6 +52,9 @@ interface TaskState {
   completePomodoro: () => void;
   skipBreak: () => void;
   updatePomodoroSettings: (settings: PomodoroSettings) => void;
+  
+  // Add function to create default tasks
+  createDefaultTasks: () => Promise<void>;
 }
 
 // Mock data for now
@@ -91,7 +94,7 @@ const mockTasks: Task[] = [
   },
 ];
 
-const useTaskStore = create<TaskState>((set, get) => ({
+export const useTaskStore = create<TaskState>((set, get) => ({
   tasks: [],
   isLoading: false,
   error: null,
@@ -114,32 +117,102 @@ const useTaskStore = create<TaskState>((set, get) => ({
     autoStartBreaks: true
   },
   
+  // Add function to create default tasks
+  createDefaultTasks: async () => {
+    try {
+      const defaultTasks = [
+        {
+          title: 'Complete React Native project',
+          description: 'Finish implementing all screens and components',
+          dueDate: new Date(Date.now() + 86400000 * 7).toISOString(), // 7 days from now
+          completed: false,
+          priority: 'high',
+          categoryId: '1',
+          progress: 0,
+          subtasks: [],
+          tags: ['work', 'development']
+        },
+        {
+          title: 'Research SQLite integration',
+          description: 'Learn how to use SQLite effectively with React Native',
+          dueDate: new Date(Date.now() + 86400000 * 2).toISOString(), // 2 days from now
+          completed: false,
+          priority: 'medium',
+          categoryId: '2',
+          progress: 0,
+          subtasks: [],
+          tags: ['research', 'development']
+        },
+        {
+          title: 'Grocery shopping',
+          description: 'Buy milk, eggs, bread, and vegetables',
+          dueDate: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
+          completed: false,
+          priority: 'low',
+          categoryId: '3',
+          progress: 0,
+          subtasks: [],
+          tags: ['personal', 'shopping']
+        },
+        {
+          title: 'Team meeting',
+          description: 'Weekly sync with the development team',
+          dueDate: new Date(Date.now() + 3600000).toISOString(), // 1 hour from now
+          completed: false,
+          priority: 'high',
+          categoryId: '1',
+          progress: 0,
+          subtasks: [],
+          tags: ['work', 'meeting']
+        },
+        {
+          title: 'Exercise',
+          description: '30 minutes of cardio and strength training',
+          dueDate: new Date(Date.now() + 7200000).toISOString(), // 2 hours from now
+          completed: false,
+          priority: 'medium',
+          categoryId: '3',
+          progress: 0,
+          subtasks: [],
+          tags: ['personal', 'health']
+        }
+      ];
+
+      for (const task of defaultTasks) {
+        await get().addTask(task);
+      }
+
+      // Fetch all tasks after creating defaults
+      await get().fetchTasks();
+    } catch (error) {
+      console.error('Error creating default tasks:', error);
+    }
+  },
+  
   fetchTasks: async (filter?: TaskFilter) => {
     set({ isLoading: true, error: null });
     try {
       // Initialize database if it hasn't been initialized yet
       await databaseService.initDatabase();
       
+      // Check if we need to create default tasks
+      const existingTasks = await taskRepository.getTasks();
+      if (existingTasks.length === 0) {
+        await get().createDefaultTasks();
+      }
+      
       // Fetch from database
-      const tasks = await databaseService.getTasks();
+      const tasks = await taskRepository.getTasks({
+        completed: filter?.completed,
+        category: filter?.category,
+        priority: filter?.priority
+      });
       
       // Apply client-side filters if provided
       let filteredTasks = [...tasks];
       
       if (filter) {
         // Apply filters
-        if ('completed' in filter && filter.completed !== undefined) {
-          filteredTasks = filteredTasks.filter(task => task.completed === filter.completed);
-        }
-        
-        if (filter.priority) {
-          filteredTasks = filteredTasks.filter(task => task.priority === filter.priority);
-        }
-        
-        if (filter.category) {
-          filteredTasks = filteredTasks.filter(task => task.categoryId === filter.category);
-        }
-        
         if ('searchText' in filter && filter.searchText) {
           const searchLower = (filter.searchText as string).toLowerCase();
           filteredTasks = filteredTasks.filter(task => 
@@ -166,6 +239,7 @@ const useTaskStore = create<TaskState>((set, get) => ({
         }
       }
       
+      console.log('Fetched tasks:', filteredTasks);
       set({ tasks: filteredTasks, isLoading: false });
     } catch (error) {
       console.error('Error loading tasks:', error);
@@ -177,28 +251,44 @@ const useTaskStore = create<TaskState>((set, get) => ({
     return get().tasks.find(task => task.id === id);
   },
   
-  addTask: async (taskData) => {
-    console.log('TaskStore - Adding task with data:', taskData);
-    console.log('TaskStore - Title:', taskData.title);
-    console.log('TaskStore - Trimmed title:', taskData.title.trim());
-    
-    set({ isLoading: true });
+  addTask: async (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
-      // Save to database
-      const newTask = await databaseService.createTask(taskData);
-      console.log('TaskStore - Task created successfully:', newTask);
+      set({ isLoading: true, error: null });
       
-      // Update local state
-      set(state => ({
-        tasks: [...state.tasks, newTask],
-        isLoading: false
-      }));
-      
-      return newTask;
+      // Validate task data
+      if (!task.title || task.title.trim() === '') {
+        throw new Error('Task title is required');
+      }
+
+      // Create task in database
+      const taskId = await databaseService.createTask({
+        ...task,
+        title: task.title.trim(),
+        description: task.description?.trim() || '',
+        priority: task.priority || 'low',
+        completed: task.completed || false,
+        categoryId: task.categoryId || 'personal',
+        dueDate: task.dueDate || new Date().toISOString(),
+        dueTime: task.dueTime || null,
+        progress: task.progress || 0,
+        recurrence: task.recurrence || null,
+        reminder: task.reminder || null,
+        subtasks: task.subtasks || [],
+        tags: task.tags || [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Fetch updated task list
+      await get().fetchTasks();
+
+      return get().getTaskById(taskId);
     } catch (error) {
-      console.error('TaskStore - Error adding task:', error);
-      set({ error: (error as Error).message || 'Unknown error', isLoading: false });
+      console.error('Error adding task:', error);
+      set({ error: error instanceof Error ? error.message : 'Failed to add task' });
       throw error;
+    } finally {
+      set({ isLoading: false });
     }
   },
   
@@ -428,6 +518,4 @@ const useTaskStore = create<TaskState>((set, get) => ({
       return null;
     }
   }
-}));
-
-export default useTaskStore; 
+})); 

@@ -5,7 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../navigation/types';
 import { appTheme } from '../theme/AppTheme';
-import useTaskStore from '../stores/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 import { Search } from 'lucide-react-native';
 
 type TeamScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Main'>;

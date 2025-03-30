@@ -14,7 +14,7 @@ class TaskRepository {
     
     const result = await databaseService.executeSql(
       `INSERT INTO tasks (
-        title, description, dueDate, priority, completed, category, created_at, updated_at
+        title, description, dueDate, priority, completed, categoryId, createdAt, updatedAt
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         task.title,
@@ -64,7 +64,7 @@ class TaskRepository {
     }
     
     if (options.category) {
-      conditions.push('category = ?');
+      conditions.push('categoryId = ?');
       params.push(options.category);
     }
     
@@ -77,7 +77,7 @@ class TaskRepository {
       query += ' WHERE ' + conditions.join(' AND ');
     }
     
-    query += ' ORDER BY dueDate ASC, priority DESC, created_at DESC';
+    query += ' ORDER BY dueDate ASC, priority DESC, createdAt DESC';
     
     const result = await databaseService.executeSql(query, params);
     const tasks: Task[] = [];
@@ -122,11 +122,11 @@ class TaskRepository {
     }
     
     if (task.categoryId !== undefined) {
-      setValues.push('category_id = ?');
+      setValues.push('categoryId = ?');
       params.push(task.categoryId);
     }
     
-    setValues.push('updated_at = ?');
+    setValues.push('updatedAt = ?');
     params.push(formatISO(new Date()));
     
     // Add id as the last parameter
@@ -161,9 +161,9 @@ class TaskRepository {
       dueDate: row.dueDate,
       priority: row.priority as Task['priority'],
       completed: Boolean(row.completed),
-      categoryId: row.category_id,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
+      categoryId: row.categoryId,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt
     };
   }
 }

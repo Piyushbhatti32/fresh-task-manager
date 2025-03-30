@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/types';
 import { appTheme } from '../theme/AppTheme';
-import useTaskStore from '../stores/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 import TaskForm from '../components/TaskForm';
 import { Task } from '../types/Task';
 
@@ -33,7 +33,13 @@ export default function CreateTaskScreen() {
       await fetchTasks();
       // Add a small delay to ensure the store is updated
       await new Promise(resolve => setTimeout(resolve, 100));
-      navigation.goBack();
+      
+      // Use navigation.pop() instead of goBack()
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.navigate('Home');
+      }
     } catch (error) {
       console.error('Error creating task:', error);
       Alert.alert('Error', 'Failed to create task. Please try again.');

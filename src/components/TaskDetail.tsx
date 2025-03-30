@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Task, SubTask } from '../types/Task';
 import SubTaskList from './SubTaskList';
 import InlinePomodoroTimer from './InlinePomodoroTimer';
-import useTaskStore from '../stores/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 import { useTheme } from '../theme/ThemeProvider';
 import databaseService from '../database/DatabaseService';
 

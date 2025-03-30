@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
   },
   taskList: {
     flex: 1,
-    padding: 16,
+    padding: 4,
   },
   dateHeader: {
     marginBottom: 16,

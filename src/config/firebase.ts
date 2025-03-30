@@ -15,6 +15,17 @@ import {
 import NetInfo from '@react-native-community/netinfo';
 import { Platform } from 'react-native';
 
+// Disable WebChannel warnings
+if (Platform.OS !== 'web') {
+  const originalWarn = console.warn;
+  console.warn = (...args) => {
+    if (args[0]?.includes?.('@firebase/firestore')) {
+      return;
+    }
+    originalWarn.apply(console, args);
+  };
+}
+
 // Replace this with your Firebase configuration from Firebase Console
 // Project Settings > General > Your apps > Web app
 const firebaseConfig = {

@@ -8,7 +8,7 @@ import {
   Platform 
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import useTaskStore from '../stores/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 import { TaskFilter, Priority, TaskCategory } from '../types/Task';
 import { useCategoryStore } from '../stores/categoryStore';
 interface FilterPanelProps {

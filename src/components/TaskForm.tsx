@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Task, TaskCategory, RecurrencePattern, ReminderOption, SubTask } from '../types/Task';
-import useTaskStore from '../stores/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 import { format, parse, addMinutes, addDays, addWeeks, addMonths, addYears } from 'date-fns';
 import { useTheme } from '../theme/ThemeProvider';
 import { Picker } from '@react-native-picker/picker';

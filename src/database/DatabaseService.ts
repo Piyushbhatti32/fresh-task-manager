@@ -80,6 +80,17 @@ class DatabaseService {
           syncStatus TEXT NOT NULL DEFAULT 'pending'
         )`,
 
+        // Create subtasks table (depends on tasks)
+        `CREATE TABLE IF NOT EXISTS subtasks (
+          id TEXT PRIMARY KEY,
+          taskId TEXT NOT NULL,
+          title TEXT NOT NULL,
+          completed INTEGER NOT NULL DEFAULT 0,
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL,
+          FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE
+        )`,
+
         // Create tags table (no foreign key dependencies)
         `CREATE TABLE IF NOT EXISTS tags (
           id TEXT PRIMARY KEY,
@@ -135,7 +146,8 @@ class DatabaseService {
         'CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority)',
         'CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(completed)',
         'CREATE INDEX IF NOT EXISTS idx_comments_taskId ON comments(taskId)',
-        'CREATE INDEX IF NOT EXISTS idx_attachments_taskId ON attachments(taskId)'
+        'CREATE INDEX IF NOT EXISTS idx_attachments_taskId ON attachments(taskId)',
+        'CREATE INDEX IF NOT EXISTS idx_subtasks_taskId ON subtasks(taskId)'
       ];
 
       for (const query of createIndexQueries) {

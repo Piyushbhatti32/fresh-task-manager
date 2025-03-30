@@ -21,7 +21,9 @@ import {
   IconButton,
   FAB,
   useTheme,
-  ProgressBar
+  ProgressBar,
+  Portal,
+  Modal
 } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -34,7 +36,7 @@ import { useDatabase } from '../hooks/useDatabase';
 import { Task } from '../types/Task';
 import { TaskCard } from '../components/TaskCard';
 import { Storage } from '../utils/storage';
-import { useTaskStore } from '../store/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 
 // Define components for the HomeScreen
 type HomeScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
@@ -61,41 +63,79 @@ function PriorityIcon({ priority }: { priority: Task['priority'] }) {
   );
 }
 
-// Stats Card Component
-function StatCard({ icon, title, value, color, onPress }: { icon: string, title: string, value: string, color: string, onPress: () => void }) {
+// Quick Action Button Component
+function QuickActionButton({ icon, label, onPress, color }: { icon: string, label: string, onPress: () => void, color: string }) {
+  const { colors: themeColors } = useTheme();
+  
   return (
     <TouchableOpacity 
-      style={[styles.statCard, { borderLeftColor: color }]}
+      style={[styles.quickActionButton, { backgroundColor: themeColors.surface }]} 
       onPress={onPress}
     >
-      <View style={styles.statIconContainer}>
-        <Ionicons name={icon as any} size={28} color={color} />
+      <MaterialIcons name={icon as any} size={24} color={color} />
+      <Text style={[styles.quickActionLabel, { color: themeColors.onSurface }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+// Stats Card Component
+function StatCard({ icon, title, value, color, onPress }: { icon: string, title: string, value: string, color: string, onPress: () => void }) {
+  const { colors: themeColors } = useTheme();
+  
+  return (
+    <TouchableOpacity 
+      style={[styles.statCard, { backgroundColor: themeColors.surface }]}
+      onPress={onPress}
+    >
+      <View style={[styles.statIconContainer, { backgroundColor: color }]}>
+        <MaterialIcons name={icon as any} size={24} color={themeColors.surface} />
       </View>
       <View style={styles.statContent}>
-        <Text style={styles.statTitle}>{title}</Text>
-        <Text style={styles.statValue}>{value}</Text>
+        <Text style={[styles.statTitle, { color: themeColors.onSurface }]}>{title}</Text>
+        <Text style={[styles.statValue, { color: themeColors.onSurface }]}>{value}</Text>
       </View>
     </TouchableOpacity>
   );
 }
 
 // Task Section Component
-function TaskSection({ title, tasks, onTaskPress, onSeeAll }: { title: string, tasks: Task[], onTaskPress: (taskId: string) => void, onSeeAll: () => void }) {
+function TaskSection({ title, tasks, onTaskPress, onSeeAll, color }: { 
+  title: string, 
+  tasks: Task[], 
+  onTaskPress: (taskId: string) => void, 
+  onSeeAll: () => void,
+  color: string 
+}) {
+  // Show only first 3 tasks
+  const displayedTasks = tasks.slice(0, 3);
+
   return (
     <View style={styles.taskSection}>
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>{title}</Text>
-        <Button onPress={onSeeAll}>See All</Button>
+        <View style={styles.sectionTitleContainer}>
+          <View style={[styles.sectionTitleIndicator, { backgroundColor: color }]} />
+          <Text style={[styles.sectionTitle, { color: color }]}>{title}</Text>
+        </View>
+        {tasks.length > 3 && (
+          <Button 
+            mode="text" 
+            onPress={onSeeAll}
+            textColor={color}
+          >
+            See All ({tasks.length})
+          </Button>
+        )}
       </View>
-      {tasks.length === 0 ? (
-        <Card style={styles.emptyCard}>
-          <Card.Content>
-            <Paragraph>No tasks in this category</Paragraph>
+      {displayedTasks.length === 0 ? (
+        <Card style={[styles.emptyCard, { borderColor: color + '40' }]}>
+          <Card.Content style={styles.emptyCardContent}>
+            <MaterialIcons name="assignment" size={32} color={color + '80'} />
+            <Paragraph style={{ color: color + '90' }}>No tasks in this category</Paragraph>
           </Card.Content>
         </Card>
       ) : (
         <FlatList
-          data={tasks}
+          data={displayedTasks}
           keyExtractor={(item) => item.id.toString()}
           renderItem={({ item }) => (
             <TaskItem 
@@ -138,32 +178,16 @@ function EmptyState() {
         size={64} 
         color={colors.primary} 
       />
-      <Text style={styles.emptyStateText}>No tasks yet!</Text>
-      <Text style={styles.emptyStateSubtext}>Create your first task to get started</Text>
+      <Text style={[styles.emptyStateText, { color: colors.primary }]}>No tasks yet!</Text>
+      <Text style={[styles.emptyStateSubtext, { color: colors.onSurface }]}>Create your first task to get started</Text>
     </Animated.View>
   );
 }
 
 export const HomeScreen = () => {
   const navigation = useNavigation<HomeScreenNavigationProp>();
-  const { colors } = useTheme();
-  const { tasks, getOverdueTasks, getTodayTasks } = useDatabase();
-  const { refreshTasks, isLoading } = useTaskStore();
-  
-  // Add focus effect to refresh tasks
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
-      refreshTasks();
-    });
-
-    return unsubscribe;
-  }, [navigation, refreshTasks]);
-
-  // Initial tasks fetch
-  useEffect(() => {
-    refreshTasks();
-  }, [refreshTasks]);
-
+  const { colors, isDark } = useTheme();
+  const { tasks, isLoading, fetchTasks } = useTaskStore();
   const [activeTask, setActiveTask] = useState<string | undefined>(undefined);
   const [showPomodoro, setShowPomodoro] = useState(false);
   const [isReturningUser, setIsReturningUser] = useState(false);
@@ -174,6 +198,43 @@ export const HomeScreen = () => {
   const headerHeight = React.useRef(new Animated.Value(160)).current;
   const taskScale = React.useRef(new Animated.Value(1)).current;
   const progressAnimation = React.useRef(new Animated.Value(0)).current;
+
+  // Fetch tasks when component mounts
+  useEffect(() => {
+    const loadTasks = async () => {
+      try {
+        await fetchTasks();
+      } catch (error) {
+        console.error('Error loading tasks:', error);
+      }
+    };
+    loadTasks();
+  }, [fetchTasks]);
+
+  // Add focus effect to refresh tasks
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', async () => {
+      try {
+        await fetchTasks();
+      } catch (error) {
+        console.error('Error refreshing tasks:', error);
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, fetchTasks]);
+
+  // Handle pull to refresh
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchTasks();
+    } catch (error) {
+      console.error('Error refreshing tasks:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchTasks]);
   
   // Check if user is returning and get user info
   useEffect(() => {
@@ -190,6 +251,30 @@ export const HomeScreen = () => {
     
     checkUserInfo();
   }, []);
+
+  // Get today's tasks
+  const todayTasks = tasks.filter(task => {
+    if (!task.dueDate) return false;
+    const taskDate = new Date(task.dueDate);
+    const today = new Date();
+    return taskDate.toDateString() === today.toDateString();
+  });
+
+  // Get overdue tasks
+  const overdueTasks = tasks.filter(task => {
+    if (!task.dueDate || task.completed) return false;
+    const taskDate = new Date(task.dueDate);
+    const today = new Date();
+    return taskDate < today;
+  });
+
+  // Get upcoming tasks
+  const upcomingTasks = tasks.filter(task => {
+    if (!task.dueDate || task.completed) return false;
+    const taskDate = new Date(task.dueDate);
+    const today = new Date();
+    return taskDate > today;
+  });
   
   // Auto-hide welcome section after 2 seconds
   useEffect(() => {
@@ -217,22 +302,6 @@ export const HomeScreen = () => {
       setShowWelcome(false);
     });
   };
-  
-  // Handle refresh
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await refreshTasks();
-    } catch (error) {
-      console.error('Error refreshing tasks:', error);
-    } finally {
-      setTimeout(() => setRefreshing(false), 1000);
-    }
-  }, [refreshTasks]);
-  
-  // Filter tasks
-  const overdueTasks = getOverdueTasks();
-  const todayTasks = getTodayTasks();
   
   // Calculate progress with a default value of 0
   const completedTasks = todayTasks.filter(task => task.completed).length;
@@ -287,165 +356,198 @@ export const HomeScreen = () => {
     ]).start();
   };
   
+  // Filter tasks with null checks
+  const pendingTasks = tasks?.filter(task => !task.completed) || [];
+  const highPriorityTasks = tasks?.filter(task => task.priority === 'high' && !task.completed) || [];
+  const dueTodayTasks = tasks?.filter(task => {
+    if (!task.dueDate || task.completed) return false;
+    const today = new Date();
+    const taskDate = new Date(task.dueDate);
+    return taskDate.getDate() === today.getDate() && 
+           taskDate.getMonth() === today.getMonth() && 
+           taskDate.getFullYear() === today.getFullYear();
+  }) || [];
+
+  // Add navigation to Tasks tab
+  const navigateToTasks = () => {
+    navigation.navigate('Tasks');
+  };
+  
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={styles.container}>
       <ScrollView 
         style={styles.scrollView}
         refreshControl={
-          <RefreshControl 
-            refreshing={refreshing || isLoading} 
-            onRefresh={onRefresh} 
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Header Visual */}
-        <Animated.View 
-          style={[
-            styles.headerVisual, 
-            { 
-              backgroundColor: colors.primary,
-              height: headerHeight
-            }
-          ]}
-        >
+        {/* Header Section */}
+        <Surface style={styles.header}>
           <View style={styles.headerContent}>
-            {showWelcome && (
-              <Animated.View style={{ opacity: welcomeOpacity }}>
-                <View style={styles.welcomeContainer}>
-                  <Text style={styles.headerTitle}>
-                    {isReturningUser ? 'Welcome Back' : 'Welcome'}{userName ? `, ${userName}` : '!'}
+            <View style={styles.headerTop}>
+              <View>
+                <Text style={styles.greeting}>
+                  {userName ? `Hello, ${userName}!` : 'Welcome back!'}
+                </Text>
+                <Text style={styles.date}>
+                  {format(new Date(), 'EEEE, MMMM d')}
+                </Text>
+              </View>
+              <TouchableOpacity 
+                style={styles.profileButton}
+                onPress={() => navigation.navigate('Settings')}
+              >
+                <Avatar.Text 
+                  size={40} 
+                  label={userName ? userName.substring(0, 2).toUpperCase() : 'U'} 
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* Quick Stats */}
+            <View style={styles.statsRow}>
+              <Surface style={[styles.statsCard, { backgroundColor: colors.primaryContainer }]}>
+                <View style={styles.statsContent}>
+                  <Text 
+                    style={[
+                      styles.statsLabel, 
+                      { 
+                        color: colors.onPrimaryContainer,
+                        whiteSpace: 'nowrap',  // Keep text in one line
+                      }
+                    ]}
+                    numberOfLines={1}  // Force single line
+                  >
+                    Total Tasks
                   </Text>
-                  <Text style={styles.headerSubtitle}>
-                    {isReturningUser 
-                      ? 'Let\'s get things done' 
-                      : 'Start organizing your tasks'}
+                  <Text style={[styles.statsValue, { color: colors.onPrimaryContainer }]}>
+                    {(tasks?.length || 0).toString()}
                   </Text>
                 </View>
-              </Animated.View>
-            )}
+              </Surface>
+
+              <Surface style={[styles.statsCard, { backgroundColor: colors.primaryContainer }]}>
+                <View style={styles.statsContent}>
+                  <Text 
+                    style={[
+                      styles.statsLabel, 
+                      { 
+                        color: colors.onPrimaryContainer,
+                        whiteSpace: 'nowrap',  // Keep text in one line
+                      }
+                    ]}
+                    numberOfLines={1}  // Force single line
+                  >
+                    Completed
+                  </Text>
+                  <Text style={[styles.statsValue, { color: colors.onPrimaryContainer }]}>
+                    {(completedTasks || 0).toString()}
+                  </Text>
+                </View>
+              </Surface>
+
+              <Surface style={[styles.statsCard, { backgroundColor: colors.primaryContainer }]}>
+                <View style={styles.statsContent}>
+                  <Text 
+          style={[
+                      styles.statsLabel, 
+                      { 
+                        color: colors.onPrimaryContainer,
+                        whiteSpace: 'nowrap',  // Keep text in one line
+                      }
+                    ]}
+                    numberOfLines={1}  // Force single line
+                  >
+                    Due Today
+                  </Text>
+                  <Text style={[styles.statsValue, { color: colors.onPrimaryContainer }]}>
+                    {(dueTodayTasks?.length || 0).toString()}
+                  </Text>
+                </View>
+              </Surface>
           </View>
-        </Animated.View>
-        
-        {/* Quick Stats */}
-        <View style={styles.statsContainer}>
-          <StatCard
-            icon="checkmark-circle"
-            title="Completed Today"
-            value={completedTasks.toString()}
+
+            {/* Quick Actions */}
+            <View style={styles.quickActions}>
+              <QuickActionButton
+                icon="add-task"
+                label="New Task"
             color={colors.primary}
-            onPress={() => navigation.navigate('Completed')}
-          />
-          <StatCard
-            icon="time"
-            title="Focus Time"
-            value="25m"
-            color={colors.secondary}
-            onPress={() => navigation.navigate('Focus')}
-          />
-          <StatCard
-            icon="calendar"
-            title="Upcoming"
-            value={todayTasks.length.toString()}
-            color={colors.tertiary}
-            onPress={() => navigation.navigate('Tasks')}
-          />
-          <StatCard
-            icon="warning"
-            title="Overdue"
-            value={overdueTasks.length.toString()}
-            color={colors.error}
-            onPress={() => navigation.navigate('Tasks')}
-          />
-        </View>
-        
-        {/* Today's Progress */}
-        <Card style={styles.section}>
-          <Card.Content>
-            <View style={styles.progressHeader}>
-              <Title style={styles.sectionTitle}>Today's Progress</Title>
-              <Text style={styles.progressText}>{completedTasks}/{todayTasks.length} tasks</Text>
+                onPress={() => navigation.navigate('CreateTask')}
+              />
+              <QuickActionButton
+                icon="timer"
+                label="Pomodoro"
+                color={colors.primary}
+                onPress={() => setShowPomodoro(true)}
+              />
+              <QuickActionButton
+                icon="calendar-today"
+                label="Calendar"
+                color={colors.primary}
+                onPress={() => navigation.navigate('Calendar')}
+              />
             </View>
-            <ProgressBar
-              progress={progress}
-              color={colors.primary}
-              style={styles.progressBar}
+          </View>
+        </Surface>
+
+        {/* Task Sections */}
+        <View style={styles.content}>
+          {highPriorityTasks.length > 0 && (
+            <TaskSection
+              title="High Priority"
+              tasks={highPriorityTasks}
+              onTaskPress={navigateToTask}
+              onSeeAll={navigateToTasks}
+              color={colors.error}
             />
-          </Card.Content>
-        </Card>
-        
-        {/* Today's Tasks */}
-        <Card style={styles.section}>
-          <Card.Content>
-            <Title style={styles.sectionTitle}>Today's Tasks</Title>
-            {todayTasks.length === 0 ? (
-              <EmptyState />
-            ) : (
-              <FlatList
-                data={todayTasks}
-                keyExtractor={(item) => item.id.toString()}
-                renderItem={({ item }) => (
-                  <TaskCard
-                    task={item}
-                    onPress={() => navigateToTask(item.id.toString())}
-                    onStartPomodoro={() => handleStartPomodoro(item.id.toString())}
-                    onComplete={() => handleTaskComplete(item.id.toString())}
-                    style={{ transform: [{ scale: taskScale }] }}
-                  />
-                )}
-                scrollEnabled={false}
-              />
-            )}
-          </Card.Content>
-          <Card.Actions>
-            <Button
-              onPress={() => navigation.navigate('MainTabs')}
-              mode="text"
-            >
-              See All Tasks
-            </Button>
-          </Card.Actions>
-        </Card>
-        
-        {/* Overdue Tasks */}
-        {overdueTasks.length > 0 && (
-          <Card style={[styles.section, { borderLeftColor: colors.error }]}>
-            <Card.Content>
-              <Title style={[styles.sectionTitle, { color: colors.error }]}>
-                Overdue Tasks ({overdueTasks.length})
-              </Title>
-              <FlatList
-                data={overdueTasks}
-                keyExtractor={(item) => item.id.toString()}
-                renderItem={({ item }) => (
-                  <TaskCard
-                    task={item}
-                    onPress={() => navigateToTask(item.id.toString())}
-                    onStartPomodoro={() => handleStartPomodoro(item.id.toString())}
-                    onComplete={() => handleTaskComplete(item.id.toString())}
-                    style={{ transform: [{ scale: taskScale }] }}
-                  />
-                )}
-                scrollEnabled={false}
-              />
-            </Card.Content>
-          </Card>
-        )}
+          )}
+
+          {dueTodayTasks.length > 0 && (
+            <TaskSection
+              title="Due Today"
+              tasks={dueTodayTasks}
+              onTaskPress={navigateToTask}
+              onSeeAll={navigateToTasks}
+              color={colors.primary}
+            />
+          )}
+
+          {pendingTasks.length > 0 && (
+            <TaskSection
+              title="Pending Tasks"
+              tasks={pendingTasks}
+              onTaskPress={navigateToTask}
+              onSeeAll={navigateToTasks}
+              color={colors.primary}
+            />
+          )}
+
+          {completedTasks.length > 0 && (
+            <TaskSection
+              title="Completed"
+              tasks={completedTasks}
+              onTaskPress={navigateToTask}
+              onSeeAll={navigateToTasks}
+              color={colors.primary}
+            />
+          )}
+        </View>
       </ScrollView>
       
-      {/* Create Task FAB */}
-      <FAB
-        style={[styles.fab, { backgroundColor: colors.primary }]}
-        icon="plus"
-        onPress={() => navigation.navigate('CreateTask')}
-      />
-      
-      {/* Pomodoro Timer */}
-      {showPomodoro && (
+      {/* Pomodoro Timer Modal */}
+      <Portal>
+        <Modal
+          visible={showPomodoro}
+          onDismiss={() => setShowPomodoro(false)}
+          contentContainerStyle={styles.modalContent}
+        >
         <InlinePomodoroTimer
-          initialTaskId={activeTask}
-          onMinimize={() => setShowPomodoro(false)}
+            taskId={activeTask}
+            onClose={() => setShowPomodoro(false)}
         />
-      )}
+        </Modal>
+      </Portal>
     </View>
   );
 };
@@ -457,128 +559,124 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
-  headerVisual: {
-    marginBottom: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 0,
-    overflow: 'hidden',
+  header: {
+    padding: 16,
+    elevation: 4,
   },
   headerContent: {
-    alignItems: 'center',
-    width: '100%',
-    padding: 12,
+    gap: 16,
   },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 2,
-  },
-  headerSubtitle: {
-    fontSize: 16,
-    color: '#fff',
-    opacity: 0.9,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    padding: 16,
-    paddingTop: 0,
-  },
-  section: {
-    margin: 16,
-    marginTop: 0,
-  },
-  sectionTitle: {
-    marginBottom: 16,
-  },
-  progressHeader: {
+  headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
+    alignItems: 'flex-start',
   },
-  progressText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  progressBar: {
-    height: 8,
-    borderRadius: 4,
-  },
-  fab: {
-    position: 'absolute',
-    margin: 16,
-    right: 0,
-    bottom: 0,
-  },
-  priorityIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  statCard: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    elevation: 2,
-    width: '48%',
-    borderLeftWidth: 4,
-  },
-  statIconContainer: {
-    marginRight: 12,
-    justifyContent: 'center',
-  },
-  statContent: {
-    flex: 1,
-  },
-  statTitle: {
-    fontSize: 14,
-    opacity: 0.7,
-  },
-  statValue: {
+  greeting: {
     fontSize: 24,
     fontWeight: 'bold',
   },
-  taskSection: {
+  date: {
+    fontSize: 16,
+    opacity: 0.7,
+  },
+  profileButton: {
+    padding: 4,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  statsCard: {
+    borderRadius: 12,
     padding: 16,
-    paddingTop: 0,
+    flex: 1,
+    minWidth: 100, // Ensure minimum width
+  },
+  statsContent: {
+    alignItems: 'flex-start',
+  },
+  statsLabel: {
+    fontSize: 14, // Slightly reduced font size if needed
+    fontWeight: '500',
+    marginBottom: 8,
+    width: '100%', // Ensure text takes full width
+  },
+  statsValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  quickActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  quickActionButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    gap: 8,
+  },
+  quickActionLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  content: {
+    padding: 16,
+    gap: 24,
+  },
+  taskSection: {
+    gap: 12,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+  },
+  sectionTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sectionTitleIndicator: {
+    width: 4,
+    height: 20,
+    borderRadius: 2,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
   },
   emptyCard: {
-    padding: 8,
-    marginBottom: 8,
+    borderWidth: 1,
+    borderRadius: 12,
   },
-  welcomeContainer: {
-    position: 'relative',
-    width: '100%',
+  emptyCardContent: {
+    alignItems: 'center',
+    padding: 24,
+    gap: 8,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    padding: 20,
+    margin: 20,
+    borderRadius: 12,
   },
   emptyState: {
-    alignItems: 'center',
+    flex: 1,
     justifyContent: 'center',
-    padding: 32,
+    alignItems: 'center',
+    padding: 24,
   },
   emptyStateText: {
     fontSize: 20,
     fontWeight: 'bold',
     marginTop: 16,
-    marginBottom: 8,
   },
   emptyStateSubtext: {
     fontSize: 16,
     opacity: 0.7,
-    textAlign: 'center',
+    marginTop: 8,
   },
 });
 

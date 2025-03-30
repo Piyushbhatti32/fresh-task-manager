@@ -3,7 +3,7 @@ import { StyleSheet, View, TouchableOpacity } from 'react-native';
 import { Card, Text, Checkbox, Badge } from 'react-native-paper';
 import { format } from 'date-fns';
 import { Task } from '../types/Task';
-import useTaskStore from '../stores/taskStore';
+import { useTaskStore } from '../stores/taskStore';
 
 interface TaskListItemProps {
   task: Task;
