@@ -54,8 +54,11 @@
     },
     "extra": {
       "eas": {
-        "projectId": "3ad30124-e1a8-49bf-83f7-a54a79118a3c"
+        "projectId": "piyushbhatti32"
       }
+    },
+    {
+    "owner": "piyushbhatti32"
     },
     "runtimeVersion": {
       "policy": "appVersion"
