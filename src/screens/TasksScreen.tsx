@@ -21,8 +21,7 @@ import {
   Chip,
   Surface,
   Card,
-  Dialog,
-  DatePickerInput
+  Dialog
 } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -39,13 +38,25 @@ import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import PomodoroTimer from '../components/PomodoroTimer';
+import TaskDetail from '../components/TaskDetail';
 
 type TasksScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Main'>;
 
 const TasksScreen = () => {
   const navigation = useNavigation<TasksScreenNavigationProp>();
-  const { colors, isDark } = useTheme();
-  const { tasks, isLoading, fetchTasks, createTask, updateTask } = useTaskStore();
+  const theme = useTheme();
+  const isDark = (theme as any).dark;
+  const { colors } = theme;
+  const { 
+    tasks, 
+    isLoading, 
+    fetchTasks, 
+    addTask, 
+    updateTask, 
+    deleteTask,
+    toggleTaskCompletion,
+    toggleSubtask
+  } = useTaskStore();
   
   // State
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -71,6 +82,10 @@ const TasksScreen = () => {
   const [showDateFilterDialog, setShowDateFilterDialog] = useState(false);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [showTaskDetail, setShowTaskDetail] = useState(false);
 
   // Fetch tasks when component mounts (consolidated from multiple hooks)
   useEffect(() => {
@@ -113,7 +128,11 @@ const TasksScreen = () => {
   
   // Navigate to task details
   const handleTaskPress = (taskId: string) => {
-    navigation.navigate('EditTask', { taskId });
+    const task = tasks.find(t => t.id === taskId);
+    if (task) {
+      setSelectedTask(task);
+      setShowTaskDetail(true);
+    }
   };
   
   // Start pomodoro timer
@@ -150,18 +169,37 @@ const TasksScreen = () => {
   // Create a new task
   const handleCreateTask = async (taskData: Partial<Task>) => {
     try {
-      const newTask = await createTask(taskData as any);
+      console.log('Creating new task with data:', taskData);
+      
+      // Ensure required fields are present
+      const newTaskData = {
+        ...taskData,
+        title: taskData.title || 'Untitled Task',
+        priority: taskData.priority || 'medium',
+        completed: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      console.log('Creating task with complete data:', newTaskData);
+      const newTask = await addTask(newTaskData);
+      
+      if (!newTask) {
+        throw new Error('Failed to create task');
+      }
+      
       console.log('New task created successfully:', newTask.id);
       
-      // No need to fetchTasks here as it will cause duplication
-      // The store already adds the new task to the tasks array
-      
+      // Close the form if it's open
       setShowForm(false);
       
-      // Just log the current task count
+      // Log the current task count
       console.log(`Current task count after creation: ${tasks.length + 1}`);
+      
+      return newTask;
     } catch (error) {
       console.error('Error creating task:', error);
+      throw error;
     }
   };
 
@@ -337,36 +375,35 @@ const TasksScreen = () => {
     return count;
   };
 
+  // Add delete handler with confirmation
+  const handleDeleteTask = async (taskId: string) => {
+    setTaskToDelete(taskId);
+    setShowDeleteDialog(true);
+  };
+
+  const confirmDeleteTask = async () => {
+    if (!taskToDelete) return;
+    
+    try {
+      console.log('Deleting task:', taskToDelete);
+      await deleteTask(taskToDelete);
+      console.log('Task deleted successfully');
+    } catch (error) {
+      console.error('Error deleting task:', error);
+    } finally {
+      setShowDeleteDialog(false);
+      setTaskToDelete(null);
+    }
+  };
+
+  // Render the appropriate task view based on viewMode
   const renderTaskView = () => {
-    const filteredTasks = getFilteredTasks;
-    
-    // Log the filtered tasks to see what's being passed to the components
-    console.log(`renderTaskView: Showing ${filteredTasks.length} tasks from ${tasks.length} total`);
-    
-    if (filteredTasks.length === 0) {
+    if (getFilteredTasks.length === 0) {
       return (
         <View style={styles.emptyContainer}>
-          <MaterialIcons name="assignment" size={64} color={colors.primary} />
-          <Text style={styles.emptyText}>No tasks found</Text>
-          <Text style={styles.emptySubtext}>
-            {searchQuery || getActiveFiltersCount() > 0 ? 'Try adjusting your filters' : 'Create a new task to get started'}
+          <Text style={[styles.emptyText, { color: theme.colors.onSurface }]}>
+            No tasks found
           </Text>
-          <Button 
-            mode="contained" 
-            onPress={() => setShowForm(true)}
-            style={styles.createButton}
-          >
-            Create Task
-          </Button>
-          {(searchQuery || getActiveFiltersCount() > 0) && (
-            <Button 
-              mode="outlined" 
-              onPress={resetFilters}
-              style={[styles.createButton, { marginTop: 8 }]}
-            >
-              Reset Filters
-            </Button>
-          )}
         </View>
       );
     }
@@ -375,33 +412,30 @@ const TasksScreen = () => {
       case 'grid':
         return (
           <TaskGridView
-            tasks={filteredTasks}
+            tasks={getFilteredTasks}
             onTaskPress={handleTaskPress}
-            onStartPomodoro={handleStartPomodoro}
             onToggleCompletion={handleToggleCompletion}
+            onDelete={handleDeleteTask}
+            onStartPomodoro={handleStartPomodoro}
           />
         );
       case 'timeline':
         return (
           <TimelineView
-            tasks={filteredTasks}
+            tasks={getFilteredTasks}
             onTaskPress={handleTaskPress}
-            onStartPomodoro={handleStartPomodoro}
             onToggleCompletion={handleToggleCompletion}
+            onStartPomodoro={handleStartPomodoro}
           />
         );
       default:
-        // Log all tasks passed to TaskList
-        filteredTasks.forEach((task, index) => {
-          console.log(`Task to display ${index + 1}: ID=${task.id}, Title=${task.title}`);
-        });
-        
         return (
           <TaskList
-            tasks={filteredTasks}
+            tasks={getFilteredTasks}
             onTaskPress={handleTaskPress}
-            onStartPomodoro={handleStartPomodoro}
             onToggle={handleToggleCompletion}
+            onDelete={handleDeleteTask}
+            onStartPomodoro={handleStartPomodoro}
           />
         );
     }
@@ -475,7 +509,7 @@ const TasksScreen = () => {
   };
 
   // Format date for display
-  const formatDate = (date) => {
+  const formatDate = (date: Date | null | undefined): string => {
     if (!date) return 'Select Date';
     return date.toLocaleDateString();
   };
@@ -565,6 +599,35 @@ const TasksScreen = () => {
     const debugTimer = setTimeout(debugTaskFiltering, 500);
     return () => clearTimeout(debugTimer);
   }, [tasks, getFilteredTasks.length]);
+
+  // Add task detail handlers
+  const handleTaskUpdate = (updatedTask: Task) => {
+    updateTask(updatedTask);
+    setSelectedTask(updatedTask);
+  };
+
+  const handleTaskDelete = async (taskId: string) => {
+    await deleteTask(taskId);
+    setShowTaskDetail(false);
+    setSelectedTask(null);
+  };
+
+  const handleToggleTaskCompletion = async (taskId: string) => {
+    await toggleTaskCompletion(taskId);
+    if (selectedTask) {
+      setSelectedTask({ ...selectedTask, completed: !selectedTask.completed });
+    }
+  };
+
+  const handleToggleSubtask = async (taskId: string, subtaskId: string) => {
+    await toggleSubtask(taskId, subtaskId);
+    if (selectedTask && selectedTask.subtasks) {
+      const updatedSubtasks = selectedTask.subtasks.map(subtask => 
+        subtask.id === subtaskId ? { ...subtask, completed: !subtask.completed } : subtask
+      );
+      setSelectedTask({ ...selectedTask, subtasks: updatedSubtasks });
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -657,18 +720,24 @@ const TasksScreen = () => {
               icon="bug"
               size={24}
               onPress={async () => {
-                console.log("Debug task creation test");
-                const testTask = {
-                  title: "Debug Test Task " + new Date().toLocaleTimeString(),
-                  description: "Created for debugging",
-                  priority: "medium" as "high" | "medium" | "low",
-                  completed: false
-                };
-                await handleCreateTask(testTask);
-                // Wait for a moment and then refresh tasks
-                setTimeout(() => {
-                  fetchTasks();
-                }, 1000);
+                try {
+                  console.log("Debug task creation test - Starting");
+                  const testTask = {
+                    title: "Debug Test Task " + new Date().toLocaleTimeString(),
+                    description: "Created for debugging",
+                    priority: "medium" as const,
+                    completed: false,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                  };
+                  
+                  console.log("Creating test task:", testTask);
+                  await handleCreateTask(testTask);
+                  
+                  console.log("Debug task creation test - Completed");
+                } catch (error) {
+                  console.error("Error in debug task creation:", error);
+                }
               }}
             />
             
@@ -757,6 +826,7 @@ const TasksScreen = () => {
           contentContainerStyle={styles.modalContent}
         >
           <TaskForm
+            isVisible={showForm}
             onClose={() => setShowForm(false)}
             onSave={handleCreateTask}
           />
@@ -768,8 +838,8 @@ const TasksScreen = () => {
           contentContainerStyle={styles.modalContent}
         >
           <InlinePomodoroTimer
-            taskId={pomodoroTaskId}
-            onClose={() => setShowPomodoro(false)}
+            initialTaskId={pomodoroTaskId}
+            onMinimize={() => setShowPomodoro(false)}
           />
         </Modal>
 
@@ -844,6 +914,41 @@ const TasksScreen = () => {
             <Button onPress={() => setShowDateFilterDialog(false)} mode="contained">Apply</Button>
           </Dialog.Actions>
         </Dialog>
+
+        <Dialog visible={showDeleteDialog} onDismiss={() => setShowDeleteDialog(false)}>
+          <Dialog.Title>Delete Task</Dialog.Title>
+          <Dialog.Content>
+            <Text>Are you sure you want to delete this task? This action cannot be undone.</Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setShowDeleteDialog(false)}>Cancel</Button>
+            <Button onPress={confirmDeleteTask} mode="contained" buttonColor={colors.error}>
+              Delete
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        {/* Task Detail Modal */}
+        <Modal
+          visible={showTaskDetail && selectedTask !== null}
+          onDismiss={() => setShowTaskDetail(false)}
+          contentContainerStyle={styles.modalContent}
+        >
+          {selectedTask && (
+            <TaskDetail
+              task={selectedTask}
+              onEdit={() => {
+                setShowTaskDetail(false);
+                navigation.navigate('EditTask', { taskId: selectedTask.id });
+              }}
+              onDelete={handleTaskDelete}
+              onToggleCompletion={handleToggleTaskCompletion}
+              onToggleSubtask={handleToggleSubtask}
+              onUpdate={handleTaskUpdate}
+              onBack={() => setShowTaskDetail(false)}
+            />
+          )}
+        </Modal>
       </Portal>
       
       {/* Direct Pomodoro Timer */}
@@ -946,9 +1051,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   modalContent: {
-    margin: 16,
-    borderRadius: 8,
-    backgroundColor: 'white',
+    flex: 1,
+    margin: 0,
   },
   datePickerRow: {
     flexDirection: 'row',

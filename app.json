@@ -3,6 +3,7 @@
     "name": "fresh-task-manager",
     "slug": "fresh-task-manager",
     "version": "1.0.0",
+    "runtimeVersion": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -58,9 +59,6 @@
       }
     },
     "owner": "piyushbhatti32",
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
     "updates": {
       "url": "https://u.expo.dev/3ad30124-e1a8-49bf-83f7-a54a79118a3c"
     }

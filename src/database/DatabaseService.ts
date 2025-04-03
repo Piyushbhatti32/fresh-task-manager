@@ -218,17 +218,34 @@ class DatabaseService {
         return param;
       });
       
-      // Use runAsync for operations that don't return data, or getAllAsync for queries
-      const result = await this.db.getAllAsync(query, processedParams);
-      return {
-        insertId: undefined, // getAllAsync doesn't provide insertId
-        rowsAffected: 0, // getAllAsync doesn't provide rowsAffected
-        rows: {
-          length: result.length,
-          _array: result,
-          item: (idx: number) => result[idx]
-        }
-      };
+      // Check if the query is a SELECT statement
+      const isSelectQuery = query.trim().toUpperCase().startsWith('SELECT');
+      
+      if (isSelectQuery) {
+        // Use getAllAsync for SELECT queries
+        const result = await this.db.getAllAsync(query, processedParams);
+        return {
+          insertId: undefined,
+          rowsAffected: 0,
+          rows: {
+            length: result.length,
+            _array: result,
+            item: (idx: number) => result[idx]
+          }
+        };
+      } else {
+        // Use runAsync for INSERT, UPDATE, DELETE operations
+        const result = await this.db.runAsync(query, processedParams);
+        return {
+          insertId: result.lastInsertRowId,
+          rowsAffected: result.changes,
+          rows: {
+            length: 0,
+            _array: [],
+            item: () => undefined
+          }
+        };
+      }
     } catch (error) {
       console.error('SQL Error:', error, 'Query:', query, 'Params:', params);
       throw error;

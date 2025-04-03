@@ -12,9 +12,9 @@ import { Task } from '../types/Task';
 import { useTheme } from '../theme/ThemeProvider';
 import { AntDesign } from '@expo/vector-icons';
 
-interface InlinePomodoroTimerProps {
+export interface InlinePomodoroTimerProps {
   initialTaskId?: string;
-  onMinimize?: () => void;
+  onMinimize: () => void;
 }
 
 const InlinePomodoroTimer: React.FC<InlinePomodoroTimerProps> = ({

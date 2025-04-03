@@ -17,6 +17,7 @@ import { Task } from '../types/Task';
 import { useTheme } from '../theme/ThemeProvider';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
+import { formatTime } from '../utils/timeUtils';
 
 interface PomodoroTimerProps {
   onClose?: () => void;
@@ -82,6 +83,17 @@ const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
     : pomodoroSettings.workDuration * 60;
     
   const progress = (totalDuration - currentPomodoro.timeRemaining) / totalDuration;
+  
+  // SVG circle properties
+  const circleRadius = 120;
+  const circleCircumference = 2 * Math.PI * circleRadius;
+  const staticStrokeDashoffset = circleCircumference * (1 - progress);
+  
+  // Animated stroke dash offset for the progress circle
+  const animatedStrokeDashoffset = progressAnimation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [circleCircumference, 0],
+  });
   
   // Update progress animation
   useEffect(() => {
@@ -194,13 +206,6 @@ const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
       startPomodoro(selectedTaskId);
     }
   };
-  
-  // Format seconds into MM:SS
-  function formatTime(seconds: number): string {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  }
   
   // Timer control actions
   const handleStart = () => {
@@ -316,13 +321,6 @@ const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
       </TouchableOpacity>
     ));
   };
-  
-  // Interpolate progress animation for circular progress
-  const circleCircumference = 2 * Math.PI * 120; // 2πr where r is the radius
-  const strokeDashoffset = progressAnimation.interpolate({
-    inputRange: [0, 1],
-    outputRange: [circleCircumference, 0]
-  });
   
   // Add keydown event handler for Escape key to close the timer
   useEffect(() => {
@@ -448,7 +446,7 @@ const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
                   strokeWidth={10}
                   fill="transparent"
                   strokeDasharray={circleCircumference}
-                  strokeDashoffset={strokeDashoffset}
+                  strokeDashoffset={staticStrokeDashoffset}
                   strokeLinecap="round"
                   transform="rotate(-90, 125, 125)"
                 />
@@ -545,7 +543,7 @@ const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
           </View>
           
           {/* Session Progress */}
-          {selectedTask && selectedTask.completedPomodoros > 0 && (
+          {selectedTask && selectedTask.completedPomodoros !== undefined && selectedTask.completedPomodoros > 0 && (
             <View style={styles.statsContainer}>
               <Text style={[styles.statsTitle, { color: theme.colors.text }]}>
                 Task Progress

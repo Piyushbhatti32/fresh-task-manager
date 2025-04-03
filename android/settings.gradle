@@ -1,0 +1,26 @@
+rootProject.name = 'TaskTimer'
+apply from: file("../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesSettingsGradle(settings)
+include ':app'
+includeBuild('../node_modules/@react-native/gradle-plugin')
+
+// Include Expo modules
+include ':expo-application'
+project(':expo-application').projectDir = new File('../node_modules/expo-application/android')
+
+include ':expo-constants'
+project(':expo-constants').projectDir = new File('../node_modules/expo-constants/android')
+
+include ':expo-file-system'
+project(':expo-file-system').projectDir = new File('../node_modules/expo-file-system/android')
+
+include ':expo-keep-awake'
+project(':expo-keep-awake').projectDir = new File('../node_modules/expo-keep-awake/android')
+
+include ':expo-modules-core'
+project(':expo-modules-core').projectDir = new File('../node_modules/expo-modules-core/android')
+
+include ':expo-splash-screen'
+project(':expo-splash-screen').projectDir = new File('../node_modules/expo-splash-screen/android')
+
+include ':expo-updates'
+project(':expo-updates').projectDir = new File('../node_modules/expo-updates/android') 

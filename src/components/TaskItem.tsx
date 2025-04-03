@@ -11,9 +11,10 @@ interface TaskItemProps {
   onPress: () => void;
   onStartPomodoro?: (taskId: string) => void;
   onToggle?: () => void;
+  onDelete?: (taskId: string) => void;
 }
 
-export default function TaskItem({ task, onPress, onStartPomodoro, onToggle }: TaskItemProps) {
+export default function TaskItem({ task, onPress, onStartPomodoro, onToggle, onDelete }: TaskItemProps) {
   const { theme, isDark } = useTheme();
 
   const getPriorityColor = (priority: string) => {
@@ -84,7 +85,7 @@ export default function TaskItem({ task, onPress, onStartPomodoro, onToggle }: T
                 {task.title}
               </Text>
             </View>
-            <View style={styles.headerRight}>
+            <View style={styles.actions}>
               <Chip 
                 icon={task.completed ? "check-circle" : "clock-outline"}
                 compact
@@ -125,6 +126,13 @@ export default function TaskItem({ task, onPress, onStartPomodoro, onToggle }: T
                     console.log('TaskItem - Checkbox clicked for task:', task.id);
                     onToggle();
                   }}
+                />
+              )}
+              {onDelete && (
+                <IconButton
+                  icon="delete"
+                  size={20}
+                  onPress={() => onDelete(task.id)}
                 />
               )}
             </View>
@@ -212,7 +220,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  headerRight: {
+  actions: {
     flexDirection: 'row',
     alignItems: 'center',
   },

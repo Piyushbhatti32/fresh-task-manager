@@ -9,7 +9,7 @@ export type RootStackParamList = {
   TaskDetail: { taskId: string };
   Login: undefined;
   Signup: undefined;
-  CreateTask: undefined;
+  CreateTask: { date?: string };
   EditTask: { taskId: string };
   GroupDetail: { groupId: string };
   CreateGroup: undefined;
@@ -22,6 +22,9 @@ export type RootStackParamList = {
   Profile: undefined;
   Groups: undefined;
   Completed: undefined;
+  Pomodoro: { taskId: string };
+  AddComment: { taskId: string };
+  ShareTask: { taskId: string };
 };
 
 // Define bottom tab param list

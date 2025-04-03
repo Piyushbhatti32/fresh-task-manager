@@ -38,6 +38,7 @@ import { Task } from '../types/Task';
 import { TaskCard } from '../components/TaskCard';
 import { Storage } from '../utils/storage';
 import { useTaskStore } from '../stores/taskStore';
+import TaskDetail from '../components/TaskDetail';
 
 // Define components for the HomeScreen
 type HomeScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
@@ -188,7 +189,7 @@ function EmptyState() {
 export const HomeScreen = () => {
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const { colors, dark: isDark } = useTheme();
-  const { tasks, isLoading, fetchTasks } = useTaskStore();
+  const { tasks, isLoading, fetchTasks, toggleTaskCompletion, deleteTask, updateTask, toggleSubtask } = useTaskStore();
   const [activeTask, setActiveTask] = useState<string | undefined>(undefined);
   const [showPomodoro, setShowPomodoro] = useState(false);
   const [isReturningUser, setIsReturningUser] = useState(false);
@@ -199,6 +200,8 @@ export const HomeScreen = () => {
   const headerHeight = React.useRef(new Animated.Value(160)).current;
   const taskScale = React.useRef(new Animated.Value(1)).current;
   const progressAnimation = React.useRef(new Animated.Value(0)).current;
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [showTaskDetail, setShowTaskDetail] = useState(false);
 
   // Fetch tasks when component mounts
   useEffect(() => {
@@ -323,7 +326,11 @@ export const HomeScreen = () => {
   
   // Navigate to task screen
   const navigateToTask = (taskId: string) => {
-    navigation.navigate('EditTask', { taskId });
+    const task = tasks.find(t => t.id === taskId);
+    if (task) {
+      setSelectedTask(task);
+      setShowTaskDetail(true);
+    }
   };
   
   // Handle start pomodoro
@@ -379,6 +386,35 @@ export const HomeScreen = () => {
     navigation.navigate('MainTabs', { screen: 'Tasks' });
   };
   
+  // Add task detail handlers
+  const handleTaskUpdate = (updatedTask: Task) => {
+    updateTask(updatedTask);
+    setSelectedTask(updatedTask);
+  };
+
+  const handleTaskDelete = async (taskId: string) => {
+    await deleteTask(taskId);
+    setShowTaskDetail(false);
+    setSelectedTask(null);
+  };
+
+  const handleToggleTaskCompletion = async (taskId: string) => {
+    await toggleTaskCompletion(taskId);
+    if (selectedTask) {
+      setSelectedTask({ ...selectedTask, completed: !selectedTask.completed });
+    }
+  };
+
+  const handleToggleSubtask = async (taskId: string, subtaskId: string) => {
+    await toggleSubtask(taskId, subtaskId);
+    if (selectedTask) {
+      const updatedSubtasks = selectedTask.subtasks.map(subtask => 
+        subtask.id === subtaskId ? { ...subtask, completed: !subtask.completed } : subtask
+      );
+      setSelectedTask({ ...selectedTask, subtasks: updatedSubtasks });
+    }
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView 
@@ -551,6 +587,30 @@ export const HomeScreen = () => {
           />
         </View>
       )}
+
+      {/* Task Detail Modal */}
+      <Portal>
+        <Modal
+          visible={showTaskDetail && selectedTask !== null}
+          onDismiss={() => setShowTaskDetail(false)}
+          contentContainerStyle={styles.modalContent}
+        >
+          {selectedTask && (
+            <TaskDetail
+              task={selectedTask}
+              onEdit={() => {
+                setShowTaskDetail(false);
+                navigation.navigate('EditTask', { taskId: selectedTask.id });
+              }}
+              onDelete={handleTaskDelete}
+              onToggleCompletion={handleToggleTaskCompletion}
+              onToggleSubtask={handleToggleSubtask}
+              onUpdate={handleTaskUpdate}
+              onBack={() => setShowTaskDetail(false)}
+            />
+          )}
+        </Modal>
+      </Portal>
     </View>
   );
 };
@@ -660,11 +720,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   modalContent: {
-    margin: 16,
-    backgroundColor: 'white',
-    borderRadius: 8,
-    padding: 16,
-    elevation: 4,
+    flex: 1,
+    margin: 0,
   },
   pomodoroOverlay: {
     position: 'absolute',

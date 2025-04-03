@@ -1,38 +1,41 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, FlatList, Dimensions, Animated } from 'react-native';
 import { Calendar, CalendarUtils } from 'react-native-calendars';
+import type { DateData } from 'react-native-calendars';
 import { format, isSameDay, isToday, parseISO, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, eachDayOfInterval as getDatesBetween, addWeeks, subWeeks } from 'date-fns';
 import { useTheme } from '../theme/ThemeProvider';
 import { useTaskStore } from '../stores/taskStore';
 import { Task } from '../types/Task';
 import { MaterialIcons } from '@expo/vector-icons';
+import { IconButton, Chip, Menu, Divider, Portal } from 'react-native-paper';
 
 // View type definition
 type CalendarViewType = 'month' | 'week' | 'today' | 'timeline' | 'year';
 
 interface MarkedDates {
   [date: string]: {
-    marked: boolean;
-    dotColor?: string;
+    marked?: boolean;
+    dots?: Array<{key: string; color: string}>;
     selected?: boolean;
     selectedColor?: string;
-    dots?: Array<{key: string; color: string}>;
   };
 }
 
 interface CalendarViewProps {
+  tasks: Task[];
   onTaskPress?: (taskId: string) => void;
   onToggleCompletion?: (taskId: string) => void;
   onAddTask?: (date: string) => void;
 }
 
 export default function CalendarView({ 
+  tasks,
   onTaskPress,
   onToggleCompletion,
   onAddTask
 }: CalendarViewProps) {
   const { theme, isDark } = useTheme();
-  const { tasks } = useTaskStore();
+  const { tasks: taskStoreTasks } = useTaskStore();
   
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [markedDates, setMarkedDates] = useState<MarkedDates>({});
@@ -44,6 +47,9 @@ export default function CalendarView({
   const [viewType, setViewType] = useState<CalendarViewType>('month');
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(startOfWeek(new Date()));
   const [viewTransition] = useState(new Animated.Value(1));
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
   
   // Toggle calendar expanded state
   const toggleCalendarExpanded = () => {
@@ -119,7 +125,7 @@ export default function CalendarView({
     // Group tasks by date and priority
     const tasksByDate: Record<string, Record<string, number>> = {};
     
-    tasks.forEach(task => {
+    taskStoreTasks.forEach(task => {
       if (!task.dueDate) return;
       
       try {
@@ -166,11 +172,11 @@ export default function CalendarView({
     };
     
     setMarkedDates(newMarkedDates);
-  }, [tasks, selectedDate, theme]);
+  }, [taskStoreTasks, selectedDate, theme]);
   
   // Update displayed tasks when selected date changes
   useEffect(() => {
-    const filteredTasks = tasks.filter(task => {
+    const filteredTasks = taskStoreTasks.filter(task => {
       if (!task.dueDate) return false;
       
       try {
@@ -203,7 +209,7 @@ export default function CalendarView({
     });
     
     setTasksForSelectedDate(sortedTasks);
-  }, [tasks, selectedDate]);
+  }, [taskStoreTasks, selectedDate]);
   
   // Load tasks for the week/month view
   useEffect(() => {
@@ -224,7 +230,7 @@ export default function CalendarView({
     });
     
     // Add tasks to their respective dates
-    tasks.forEach(task => {
+    taskStoreTasks.forEach(task => {
       if (!task.dueDate) return;
       
       try {
@@ -257,7 +263,7 @@ export default function CalendarView({
     });
     
     setWeekTasks(tasksByDate);
-  }, [tasks, currentMonth]);
+  }, [taskStoreTasks, currentMonth]);
   
   // Handle date selection
   const handleDateSelect = (day: any) => {
@@ -299,92 +305,106 @@ export default function CalendarView({
     
     return (
       <TouchableOpacity
-        key={item?.id || `task-${Math.random().toString(36)}`}
+        key={item.id}
         style={[
           styles.taskItem,
-          {
-            backgroundColor: theme.colors.surface,
-            borderLeftColor: priorityColors[item.priority as keyof typeof priorityColors],
-            opacity: item.completed ? 0.7 : 1
-          }
+          { backgroundColor: theme.colors.surface }
         ]}
-        onPress={() => onTaskPress && onTaskPress(item.id)}
+        onPress={() => {
+          console.log('Task item pressed:', item.id);
+          if (onTaskPress) {
+            onTaskPress(item.id);
+          }
+        }}
       >
-        <View style={styles.taskStatusContainer}>
-          <TouchableOpacity
-            style={[
-              styles.checkbox,
-              { borderColor: theme.colors.outline || theme.colors.text + '40' },
-              item.completed && { backgroundColor: theme.colors.success }
-            ]}
-            onPress={() => handleToggleTask(item.id)}
-          >
-            {item.completed && (
-              <MaterialIcons name="done" size={16} color="#fff" />
-            )}
-          </TouchableOpacity>
-        </View>
-        
         <View style={styles.taskContent}>
-          <Text 
-            style={[
-              styles.taskTitle, 
-              { 
-                color: theme.colors.text,
-                textDecorationLine: item.completed ? 'line-through' : 'none' 
-              }
-            ]}
-            numberOfLines={1}
-          >
-            {item.title}
-          </Text>
-          
-          {item.description ? (
+          <View style={styles.taskHeader}>
             <Text 
-              style={[styles.taskDescription, { color: theme.colors.text, opacity: 0.7 }]}
+              style={[
+                styles.taskTitle,
+                { color: theme.colors.text }
+              ]}
               numberOfLines={1}
+            >
+              {item.title}
+            </Text>
+            <View style={styles.taskActions}>
+              <IconButton
+                icon="pencil"
+                size={20}
+                onPress={() => {
+                  console.log('Edit button pressed for task:', item.id);
+                  if (onTaskPress) {
+                    onTaskPress(item.id);
+                  }
+                }}
+              />
+              <IconButton
+                icon="dots-vertical"
+                size={20}
+                onPress={(e) => {
+                  console.log('Menu button pressed for task:', item.id);
+                  setSelectedTaskId(item.id);
+                  setMenuVisible(true);
+                  // Get the position of the menu button
+                  const { pageX, pageY } = e.nativeEvent;
+                  setMenuAnchor({ x: pageX, y: pageY });
+                }}
+              />
+            </View>
+          </View>
+          
+          {item.description && (
+            <Text 
+              style={[
+                styles.taskDescription,
+                { color: theme.colors.text + '80' }
+              ]}
+              numberOfLines={2}
             >
               {item.description}
             </Text>
-          ) : null}
-          
-          {/* Show subtasks count if available */}
-          {item.subtasks && item.subtasks.length > 0 && (
-            <View style={styles.subtasksIndicator}>
-              <Text style={[styles.subtasksText, { color: theme.colors.text, opacity: 0.7 }]}>
-                {item.subtasks.filter(st => st.completed).length}/{item.subtasks.length} subtasks
-              </Text>
-              <View style={styles.progressBar}>
-                <View 
-                  style={[
-                    styles.progressFill,
-                    { 
-                      backgroundColor: priorityColors[item.priority as keyof typeof priorityColors],
-                      width: `${Math.round((item.subtasks.filter(st => st.completed).length / item.subtasks.length) * 100)}%`
-                    }
-                  ]}
-                />
-              </View>
-            </View>
           )}
-        </View>
-        
-        {/* Priority indicator */}
-        <View 
-          style={[
-            styles.priorityIndicator, 
-            { backgroundColor: 'transparent' }
-          ]}
-        >
-          <MaterialIcons 
-            name={
-              item.priority === 'high' ? "priority-high" : 
-              item.priority === 'medium' ? "drag-handle" : 
-              "arrow-downward"
-            } 
-            size={20} 
-            color={priorityColors[item.priority as keyof typeof priorityColors]} 
-          />
+          
+          <View style={styles.taskFooter}>
+            <Chip 
+              icon={item.completed ? "check" : "clock-outline"}
+              onPress={() => {
+                console.log('Toggle completion for task:', item.id);
+                if (onToggleCompletion) {
+                  onToggleCompletion(item.id);
+                }
+              }}
+              style={[
+                styles.statusChip,
+                { 
+                  backgroundColor: item.completed 
+                    ? theme.colors.success 
+                    : theme.colors.surfaceVariant 
+                }
+              ]}
+              textStyle={{ color: item.completed ? '#fff' : theme.colors.text }}
+            >
+              {item.completed ? "Completed" : "Pending"}
+            </Chip>
+            
+            <View 
+              style={[
+                styles.priorityIndicator, 
+                { backgroundColor: 'transparent' }
+              ]}
+            >
+              <MaterialIcons 
+                name={
+                  item.priority === 'high' ? "priority-high" : 
+                  item.priority === 'medium' ? "drag-handle" : 
+                  "arrow-downward"
+                } 
+                size={20} 
+                color={priorityColors[item.priority as keyof typeof priorityColors]} 
+              />
+            </View>
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -704,7 +724,7 @@ export default function CalendarView({
         const todayStr = format(today, 'yyyy-MM-dd');
         
         // Filter tasks directly instead of using weekTasks
-        const todayTasks = tasks.filter(task => {
+        const todayTasks = taskStoreTasks.filter(task => {
           if (!task.dueDate) return false;
           
           try {
@@ -955,7 +975,7 @@ export default function CalendarView({
                       paddingTop: 0,
                       paddingBottom: 0
                     }
-                  },
+                  } as any,
                   'stylesheet.calendar.main': {
                     week: {
                       marginTop: 2,
@@ -963,7 +983,7 @@ export default function CalendarView({
                       flexDirection: 'row',
                       justifyContent: 'space-around'
                     }
-                  }
+                  } as any
                 }}
                 hideArrows={true}
                 renderHeader={() => null}
@@ -972,7 +992,7 @@ export default function CalendarView({
                 onDayPress={handleDateSelect}
                 enableSwipeMonths={true}
                 current={currentMonth + '-01'}
-                onMonthChange={(month: any) => {
+                onMonthChange={(month: DateData) => {
                   setCurrentMonth(month.dateString.substring(0, 7));
                 }}
               />
@@ -1167,6 +1187,55 @@ export default function CalendarView({
           </Text>
         </TouchableOpacity>
       </View>
+      
+      <Portal>
+        <Menu
+          visible={menuVisible}
+          onDismiss={() => {
+            setMenuVisible(false);
+            setSelectedTaskId(null);
+            setMenuAnchor(null);
+          }}
+          anchor={menuAnchor ? { x: menuAnchor.x, y: menuAnchor.y } : { x: 0, y: 0 }}
+        >
+          {selectedTaskId && (
+            <>
+              <Menu.Item 
+                onPress={() => {
+                  setMenuVisible(false);
+                  if (onTaskPress) {
+                    onTaskPress(selectedTaskId);
+                  }
+                }}
+                title="View Details"
+                leadingIcon="eye"
+              />
+              <Menu.Item 
+                onPress={() => {
+                  setMenuVisible(false);
+                  if (onToggleCompletion) {
+                    onToggleCompletion(selectedTaskId);
+                  }
+                }}
+                title={tasks.find(t => t.id === selectedTaskId)?.completed ? "Mark as Pending" : "Mark as Completed"}
+                leadingIcon={tasks.find(t => t.id === selectedTaskId)?.completed ? "clock-outline" : "check"}
+              />
+              <Divider />
+              <Menu.Item 
+                onPress={() => {
+                  setMenuVisible(false);
+                  if (onTaskPress) {
+                    onTaskPress(selectedTaskId);
+                  }
+                }}
+                title="Delete Task"
+                leadingIcon="delete"
+                titleStyle={{ color: theme.colors.error }}
+              />
+            </>
+          )}
+        </Menu>
+      </Portal>
     </View>
   );
 }
@@ -1382,30 +1451,37 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 1,
   },
-  taskStatusContainer: {
-    marginRight: 12,
-    justifyContent: 'center',
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 3,
-    borderWidth: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   taskContent: {
     flex: 1,
     justifyContent: 'center',
+  },
+  taskHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   taskTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 2,
   },
+  taskActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   taskDescription: {
     fontSize: 14,
     marginBottom: 4,
+  },
+  taskFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  statusChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 16,
   },
   priorityIndicator: {
     width: 28,
@@ -1414,27 +1490,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'center',
     marginLeft: 8,
-  },
-  priorityText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  subtasksIndicator: {
-    marginTop: 4,
-  },
-  subtasksText: {
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  progressBar: {
-    height: 4,
-    backgroundColor: 'rgba(0,0,0,0.1)',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
   },
   emptyState: {
     flex: 1,

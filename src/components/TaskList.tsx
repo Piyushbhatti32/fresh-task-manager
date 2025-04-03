@@ -20,6 +20,7 @@ interface TaskListProps {
   onTaskPress: (taskId: string) => void;
   onStartPomodoro?: (taskId: string) => void;
   onToggle?: (taskId: string) => void;
+  onDelete?: (taskId: string) => void;
   filter?: {
     status?: 'completed' | 'pending';
     priority?: 'high' | 'medium' | 'low';
@@ -34,6 +35,7 @@ export default function TaskList({
   onTaskPress, 
   onStartPomodoro,
   onToggle,
+  onDelete,
   filter, 
   sortBy = 'dueDate', 
   sortOrder = 'asc',
@@ -160,6 +162,7 @@ export default function TaskList({
             console.log('Toggling task completion from TaskList:', item.id);
             onToggle(item.id);
           } : undefined}
+          onDelete={onDelete ? (taskId) => onDelete(taskId) : undefined}
         />
       )}
       initialNumToRender={20}

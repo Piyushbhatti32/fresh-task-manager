@@ -78,6 +78,12 @@ export interface Task {
   pomodoroSessions?: PomodoroSession[]; // track pomodoro sessions for this task
   totalPomodoroTime?: number; // total time spent on task in minutes
   completedPomodoros?: number; // number of completed pomodoro sessions
+  tags?: string[]; // array of tag names
+  notes?: Array<{
+    id: string;
+    content: string;
+    createdAt: string;
+  }>; // array of task notes
 }
 
 export interface TaskTemplate {

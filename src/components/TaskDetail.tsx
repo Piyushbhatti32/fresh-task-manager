@@ -1,255 +1,412 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { View, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
-import { Text, Button, IconButton, Divider, Chip, Surface, Menu } from 'react-native-paper';
+import { Text, Button, IconButton, Divider, Chip, Surface, Menu, Portal, Modal, ProgressBar } from 'react-native-paper';
 import { formatDistanceToNow, format } from 'date-fns';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { Task, SubTask } from '../types/Task';
 import SubTaskList from './SubTaskList';
 import InlinePomodoroTimer from './InlinePomodoroTimer';
 import { useTaskStore } from '../stores/taskStore';
 import { useTheme } from '../theme/ThemeProvider';
-import databaseService from '../database/DatabaseService';
 
 interface TaskDetailProps {
-  taskId: string;
-  onEdit: () => void;
-  onDelete: (taskId: string) => void;
+  task: Task;
   onBack: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onUpdate: (updatedTask: Task) => void;
+  onToggleCompletion: (taskId: string) => void;
+  onToggleSubtask: (taskId: string, subtaskId: string) => void;
+  onPomodoro?: () => void;
+  onAddComment?: () => void;
+  onShare?: () => void;
 }
 
-export default function TaskDetail({ taskId, onEdit, onDelete, onBack }: TaskDetailProps) {
-  const [task, setTask] = useState<Task | null>(null);
-  const [subTasks, setSubTasks] = useState<SubTask[]>([]);
+export default function TaskDetail({ 
+  task, 
+  onEdit, 
+  onDelete, 
+  onToggleCompletion,
+  onToggleSubtask,
+  onUpdate,
+  onBack,
+  onPomodoro,
+  onAddComment,
+  onShare
+}: TaskDetailProps) {
   const [showPomodoro, setShowPomodoro] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const { theme, isDark } = useTheme();
-
-  useEffect(() => {
-    loadTask();
-  }, [taskId]);
-
-  const loadTask = async () => {
-    try {
-      // Fetch task details
-      const query = `
-        SELECT t.*, GROUP_CONCAT(tag.name) as tagNames, GROUP_CONCAT(tag.color) as tagColors
-        FROM tasks t
-        LEFT JOIN task_tags tt ON t.id = tt.taskId
-        LEFT JOIN tags tag ON tt.tagId = tag.id
-        WHERE t.id = ?
-        GROUP BY t.id
-      `;
-      const result = await databaseService.executeSql(query, [taskId]);
-      
-      if (result.rows.length > 0) {
-        const fetchedTask = result.rows.item(0);
-        
-        // Process tags
-        let tags = [];
-        if (fetchedTask.tagNames) {
-          const tagNames = fetchedTask.tagNames.split(',');
-          const tagColors = fetchedTask.tagColors.split(',');
-          tags = tagNames.map((name: string, index: number) => ({
-            name,
-            color: tagColors[index]
-          }));
-        }
-        
-        setTask({
-          ...fetchedTask,
-          tags
-        });
-        
-        // Fetch subtasks
-        const subTaskQuery = 'SELECT * FROM subtasks WHERE taskId = ? ORDER BY completed ASC, createdAt ASC';
-        const subTaskResult = await databaseService.executeSql(subTaskQuery, [taskId]);
-        setSubTasks(subTaskResult.rows._array || []);
-      }
-    } catch (error) {
-      console.error('Error loading task details:', error);
-    }
-  };
 
   const handlePomodoro = () => {
     setShowPomodoro(!showPomodoro);
     setMenuVisible(false);
+    if (onPomodoro) {
+      onPomodoro();
+    }
   };
 
   const handleCommentAdd = () => {
     setMenuVisible(false);
-    // Add comment functionality
+    if (onAddComment) {
+      onAddComment();
+    }
   };
 
   const handleShare = () => {
     setMenuVisible(false);
-    // Share functionality
+    if (onShare) {
+      onShare();
+    }
   };
 
-  if (!task) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <Text>Loading task details...</Text>
-      </View>
-    );
-  }
+  const handleDelete = () => {
+    setMenuVisible(false);
+    setShowDeleteConfirm(true);
+    onDelete();
+  };
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority.toLowerCase()) {
+      case 'high':
+        return isDark ? '#CF6679' : '#D32F2F';
+      case 'medium':
+        return isDark ? '#FFDF5D' : '#FFC107';
+      case 'low':
+        return isDark ? '#78939D' : '#78909C';
+      default:
+        return isDark ? '#78939D' : '#78909C';
+    }
+  };
+
+  const getPriorityIcon = (priority: string) => {
+    switch (priority.toLowerCase()) {
+      case 'high':
+        return 'priority-high';
+      case 'medium':
+        return 'drag-handle';
+      case 'low':
+        return 'arrow-downward';
+      default:
+        return 'drag-handle';
+    }
+  };
+
+  const calculateSubtaskProgress = () => {
+    if (!task.subtasks || task.subtasks.length === 0) return 0;
+    const completed = task.subtasks.filter(st => st.completed).length;
+    return completed / task.subtasks.length;
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={styles.header}>
-        <IconButton
-          icon="arrow-left"
-          size={24}
-          onPress={onBack}
-        />
+        <View style={styles.headerLeft}>
+          <IconButton
+            icon="arrow-left"
+            size={24}
+            onPress={onBack}
+          />
+          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
+            Task Details
+          </Text>
+        </View>
         <View style={styles.actionsContainer}>
           <IconButton
             icon="pencil"
             size={24}
             onPress={onEdit}
           />
-          <Menu
-            visible={menuVisible}
-            onDismiss={() => setMenuVisible(false)}
-            anchor={
-              <IconButton
-                icon="dots-vertical"
-                size={24}
-                onPress={() => setMenuVisible(true)}
-              />
-            }
-          >
-            <Menu.Item 
-              onPress={handlePomodoro} 
-              title="Pomodoro Focus" 
-              leadingIcon="timer"
-            />
-            <Menu.Item 
-              onPress={handleCommentAdd} 
-              title="Add Comment" 
-              leadingIcon="message-outline"
-            />
-            <Menu.Item 
-              onPress={handleShare} 
-              title="Share Task" 
-              leadingIcon="share-variant"
-            />
-            <Divider />
-            <Menu.Item 
-              onPress={() => {
-                setMenuVisible(false);
-                onDelete(taskId);
-              }} 
-              title="Delete Task" 
-              leadingIcon="delete"
-              titleStyle={{ color: 'red' }}
-            />
-          </Menu>
         </View>
       </View>
 
       <ScrollView style={styles.content}>
         <View style={styles.titleContainer}>
-          <Text style={styles.title}>{task.title}</Text>
+          <Text style={[styles.title, { color: theme.colors.text }]}>{task.title}</Text>
           {task.priority && (
-            <Surface style={[styles.priorityBadge, getPriorityStyle(task.priority, isDark)]}>
+            <Surface style={[styles.priorityBadge, { backgroundColor: getPriorityColor(task.priority) }]}>
+              <MaterialIcons 
+                name={getPriorityIcon(task.priority)} 
+                size={16} 
+                color="#fff" 
+                style={styles.priorityIcon}
+              />
               <Text style={styles.priorityText}>{task.priority.toUpperCase()}</Text>
             </Surface>
           )}
         </View>
 
+        <View style={styles.statusContainer}>
+          <Chip 
+            icon={task.completed ? "check" : "clock-outline"}
+            onPress={() => onToggleCompletion(task.id)}
+            style={[
+              styles.statusChip,
+              { 
+                backgroundColor: task.completed 
+                  ? theme.colors.success 
+                  : theme.colors.surfaceVariant 
+              }
+            ]}
+            textStyle={{ color: task.completed ? '#fff' : theme.colors.text }}
+          >
+            {task.completed ? "Completed" : "Pending"}
+          </Chip>
+          {task.completed && task.updatedAt && (
+            <Text style={[styles.completionDate, { color: theme.colors.text }]}>
+              Completed {formatDistanceToNow(new Date(task.updatedAt), { addSuffix: true })}
+            </Text>
+          )}
+        </View>
+
+        {/* Quick Actions Bar */}
+        <View style={styles.quickActions}>
+          <TouchableOpacity 
+            style={styles.quickAction}
+            onPress={() => onToggleCompletion(task.id)}
+          >
+            <MaterialIcons 
+              name={task.completed ? "check-box" : "check-box-outline-blank"} 
+              size={24} 
+              color={theme.colors.primary} 
+            />
+            <Text style={[styles.quickActionText, { color: theme.colors.text }]}>
+              {task.completed ? "Mark Incomplete" : "Mark Complete"}
+            </Text>
+          </TouchableOpacity>
+          {onPomodoro && (
+            <TouchableOpacity 
+              style={styles.quickAction}
+              onPress={handlePomodoro}
+            >
+              <MaterialIcons 
+                name="timer" 
+                size={24} 
+                color={theme.colors.primary} 
+              />
+              <Text style={[styles.quickActionText, { color: theme.colors.text }]}>
+                Start Focus
+              </Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity 
+            style={styles.quickAction}
+            onPress={onEdit}
+          >
+            <MaterialIcons 
+              name="edit" 
+              size={24} 
+              color={theme.colors.primary} 
+            />
+            <Text style={[styles.quickActionText, { color: theme.colors.text }]}>
+              Edit Task
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.quickAction}
+            onPress={() => setShowDeleteConfirm(true)}
+          >
+            <MaterialIcons 
+              name="delete" 
+              size={24} 
+              color={theme.colors.error} 
+            />
+            <Text style={[styles.quickActionText, { color: theme.colors.error }]}>
+              Delete
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {task.description && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Description</Text>
-            <Text style={styles.description}>{task.description}</Text>
+            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Description</Text>
+            <Text style={[styles.description, { color: theme.colors.text }]}>{task.description}</Text>
           </View>
         )}
 
         {showPomodoro && (
           <View style={styles.pomodoroContainer}>
             <InlinePomodoroTimer 
-              initialTaskId={taskId}
+              initialTaskId={task.id}
+              onMinimize={() => setShowPomodoro(false)}
             />
           </View>
         )}
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Details</Text>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Details</Text>
           <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Status:</Text>
-            <Chip icon={task.completed ? "check" : "clock-outline"}>
-              {task.completed ? "Completed" : "Pending"}
-            </Chip>
+            <Text style={[styles.detailLabel, { color: theme.colors.text }]}>Created:</Text>
+            <Text style={[styles.detailValue, { color: theme.colors.text }]}>
+              {format(new Date(task.createdAt), 'PPP')}
+            </Text>
           </View>
           {task.dueDate && (
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Deadline:</Text>
-              <Text style={styles.detailValue}>
+              <Text style={[styles.detailLabel, { color: theme.colors.text }]}>Deadline:</Text>
+              <Text style={[styles.detailValue, { color: theme.colors.text }]}>
                 {format(new Date(task.dueDate), 'PPP')}
                 {' '}
                 ({formatDistanceToNow(new Date(task.dueDate), { addSuffix: true })})
               </Text>
             </View>
           )}
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Created:</Text>
-            <Text style={styles.detailValue}>
-              {format(new Date(task.createdAt), 'PPP')}
-            </Text>
-          </View>
+          {task.dueTime && (
+            <View style={styles.detailRow}>
+              <Text style={[styles.detailLabel, { color: theme.colors.text }]}>Time:</Text>
+              <Text style={[styles.detailValue, { color: theme.colors.text }]}>
+                {format(new Date(`2000-01-01T${task.dueTime}`), 'h:mm a')}
+              </Text>
+            </View>
+          )}
+          {task.location && (
+            <View style={styles.detailRow}>
+              <Text style={[styles.detailLabel, { color: theme.colors.text }]}>Location:</Text>
+              <Text style={[styles.detailValue, { color: theme.colors.text }]}>
+                {task.location}
+              </Text>
+            </View>
+          )}
+          {task.tags && task.tags.length > 0 && (
+            <View style={styles.detailRow}>
+              <Text style={[styles.detailLabel, { color: theme.colors.text }]}>Tags:</Text>
+              <View style={styles.tagsContainer}>
+                {task.tags.map((tag, index) => (
+                  <Chip
+                    key={index}
+                    style={[styles.tagChip, { backgroundColor: theme.colors.surfaceVariant }]}
+                    textStyle={{ color: theme.colors.text }}
+                  >
+                    {tag}
+                  </Chip>
+                ))}
+              </View>
+            </View>
+          )}
         </View>
 
-        {(task as any).tags && (task as any).tags.length > 0 && (
+        {task.subtasks && task.subtasks.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Tags</Text>
-            <View style={styles.tagsContainer}>
-              {(task as any).tags.map((tag: { name: string; color?: string }, index: number) => (
-                <Chip 
-                  key={index} 
-                  style={[styles.tag, { backgroundColor: tag.color || '#e0e0e0' }]}
-                >
-                  {tag.name}
-                </Chip>
-              ))}
+            <View style={styles.subtaskHeader}>
+              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Sub-tasks</Text>
+              <Text style={[styles.subtaskProgress, { color: theme.colors.text }]}>
+                {task.subtasks.filter(st => st.completed).length} of {task.subtasks.length} completed
+              </Text>
+            </View>
+            <ProgressBar
+              progress={calculateSubtaskProgress()}
+              color={theme.colors.primary}
+              style={styles.progressBar}
+            />
+            <SubTaskList
+              taskId={task.id}
+              subtasks={task.subtasks}
+              onChange={(updatedSubtasks) => {
+                onUpdate({
+                  ...task,
+                  subtasks: updatedSubtasks
+                });
+              }}
+            />
+          </View>
+        )}
+
+        {task.pomodoroSessions && task.pomodoroSessions.length > 0 && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Pomodoro Sessions</Text>
+            <View style={styles.pomodoroStats}>
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: theme.colors.primary }]}>
+                  {task.completedPomodoros || 0}
+                </Text>
+                <Text style={[styles.statLabel, { color: theme.colors.text }]}>Completed</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: theme.colors.text }]}>
+                  {Math.round((task.totalPomodoroTime || 0) / 60)}h
+                </Text>
+                <Text style={[styles.statLabel, { color: theme.colors.text }]}>Total Time</Text>
+              </View>
             </View>
           </View>
         )}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Sub-tasks</Text>
-          <SubTaskList
-            taskId={taskId}
-            subtasks={subTasks}
-            onChange={() => loadTask()}
-          />
-        </View>
+        {task.notes && task.notes.length > 0 && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Notes</Text>
+            {task.notes.map((note, index) => (
+              <Surface key={index} style={[styles.noteCard, { backgroundColor: theme.colors.surfaceVariant }]}>
+                <Text style={[styles.noteText, { color: theme.colors.text }]}>{note.content}</Text>
+                <Text style={[styles.noteDate, { color: theme.colors.text }]}>
+                  {format(new Date(note.createdAt.toString()), 'PPP')}
+                </Text>
+              </Surface>
+            ))}
+          </View>
+        )}
       </ScrollView>
+
+      <Portal>
+        <Modal
+          visible={showDeleteConfirm}
+          onDismiss={() => setShowDeleteConfirm(false)}
+          contentContainerStyle={[
+            styles.deleteModal,
+            { backgroundColor: theme.colors.surface }
+          ]}
+        >
+          <Text style={[styles.deleteTitle, { color: theme.colors.text }]}>
+            Delete Task
+          </Text>
+          <Text style={[styles.deleteMessage, { color: theme.colors.text }]}>
+            Are you sure you want to delete this task? This action cannot be undone.
+          </Text>
+          <View style={styles.deleteActions}>
+            <Button
+              mode="outlined"
+              onPress={() => setShowDeleteConfirm(false)}
+              style={styles.deleteButton}
+            >
+              Cancel
+            </Button>
+            <Button
+              mode="contained"
+              onPress={() => {
+                setShowDeleteConfirm(false);
+                handleDelete();
+              }}
+              style={[styles.deleteButton, { backgroundColor: theme.colors.error }]}
+            >
+              Delete
+            </Button>
+          </View>
+        </Modal>
+      </Portal>
     </View>
   );
-}
-
-function getPriorityStyle(priority: string, isDark: boolean) {
-  switch (priority.toLowerCase()) {
-    case 'high':
-      return { backgroundColor: isDark ? '#CF6679' : '#D32F2F' };
-    case 'medium':
-      return { backgroundColor: isDark ? '#FFDF5D' : '#FFC107' };
-    case 'low':
-      return { backgroundColor: isDark ? '#78939D' : '#78909C' };
-    default:
-      return { backgroundColor: isDark ? '#78939D' : '#78909C' };
-  }
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    borderRadius: 10,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 8,
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginLeft: 8,
   },
   actionsContainer: {
     flexDirection: 'row',
@@ -261,37 +418,71 @@ const styles = StyleSheet.create({
   },
   titleContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: 16,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     flex: 1,
-    marginRight: 16,
   },
   priorityBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    elevation: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  priorityIcon: {
+    marginRight: 4,
   },
   priorityText: {
-    color: 'white',
+    color: '#fff',
     fontWeight: 'bold',
+    fontSize: 12,
+  },
+  statusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  statusChip: {
+    marginRight: 8,
+  },
+  completionDate: {
+    fontSize: 14,
+    opacity: 0.7,
+  },
+  quickActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 24,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  quickAction: {
+    alignItems: 'center',
+  },
+  quickActionText: {
+    marginTop: 4,
+    fontSize: 12,
   },
   section: {
     marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: 'bold',
     marginBottom: 8,
   },
   description: {
     fontSize: 16,
     lineHeight: 24,
+  },
+  pomodoroContainer: {
+    marginBottom: 16,
   },
   detailRow: {
     flexDirection: 'row',
@@ -299,24 +490,86 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   detailLabel: {
-    width: 80,
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: 'bold',
+    width: 100,
   },
   detailValue: {
     fontSize: 16,
+    flex: 1,
   },
   tagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    flex: 1,
   },
-  tag: {
+  tagChip: {
     marginRight: 8,
     marginBottom: 8,
   },
-  pomodoroContainer: {
+  subtaskHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  subtaskProgress: {
+    fontSize: 14,
+    opacity: 0.7,
+  },
+  progressBar: {
+    height: 4,
+    borderRadius: 2,
     marginBottom: 16,
+  },
+  pomodoroStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 16,
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  statLabel: {
+    fontSize: 14,
+    opacity: 0.7,
+  },
+  noteCard: {
+    padding: 16,
     borderRadius: 8,
-    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  noteText: {
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  noteDate: {
+    fontSize: 12,
+    opacity: 0.7,
+  },
+  deleteModal: {
+    margin: 20,
+    padding: 20,
+    borderRadius: 8,
+  },
+  deleteTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+  deleteMessage: {
+    fontSize: 16,
+    marginBottom: 24,
+  },
+  deleteActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  deleteButton: {
+    marginLeft: 8,
   },
 }); 

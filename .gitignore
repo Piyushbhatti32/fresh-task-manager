@@ -1,36 +1,91 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
-# dependencies
+# Dependencies
 node_modules/
+/.pnp
+.pnp.js
+yarn.lock
+package-lock.json
 
 # Expo
 .expo/
 dist/
 web-build/
 expo-env.d.ts
-
-# Native
-*.orig.*
 *.jks
 *.p8
 *.p12
 *.key
 *.mobileprovision
+*.orig.*
+*.apk
+*.aab
+*.ipa
+
+# Native
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/*.keystore
+ios/Pods/
+ios/build/
+ios/*.xcworkspace
+ios/*.xcodeproj/*
+!ios/*.xcodeproj/project.pbxproj
+!ios/*.xcodeproj/xcshareddata/
+!ios/*.xcworkspace/contents.xcworkspacedata
+ios/*.xcuserdatad/
+ios/UserInterfaceState.xcuserstate
 
 # Metro
 .metro-health-check*
+.metro-cache/
 
-# debug
+# Debug
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+*.log
+logs
+*.log.*
 
-# macOS
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*.bak
+*.tmp
+*.temp
 .DS_Store
-*.pem
+Thumbs.db
 
-# local env files
-.env*.local
-
-# typescript
+# TypeScript
 *.tsbuildinfo
+.qodo
+
+# Testing
+coverage/
+.nyc_output/
+
+# Build
+build/
+dist/
+out/
+
+# Misc
+*.orig
+*.bak
+*.swp
+*~
+*.sublime-workspace
+*.sublime-project

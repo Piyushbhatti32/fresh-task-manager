@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Task, TaskFilter, TaskTemplate, SubTask, Priority } from '../types/Task';
-import taskRepository from '../database/TaskRepository';
 import databaseService from '../database/DatabaseService';
+import taskRepository from '../database/TaskRepository';
 
 // Define PomodoroSettings type
 type PomodoroSettings = {
@@ -18,6 +18,10 @@ interface TaskState {
   isLoading: boolean;
   error: string | null;
   templates: TaskTemplate[];
+  isInitialized: boolean;
+  
+  // Add initialize method
+  initialize: () => Promise<void>;
   
   // Pomodoro features
   currentPomodoro: {
@@ -70,12 +74,13 @@ interface TaskState {
   createDefaultTasks: () => Promise<void>;
 }
 
-export const useTaskStore = create<TaskState>()((set, get) => ({
+export const useTaskStore = create<TaskState>((set, get) => ({
   tasks: [],
   isLoading: false,
   error: null,
   templates: [],
   categories: [],
+  isInitialized: false,
   
   // Pomodoro state
   currentPomodoro: {
@@ -98,22 +103,23 @@ export const useTaskStore = create<TaskState>()((set, get) => ({
   fetchTasks: async (filter?: TaskFilter) => {
     try {
       set({ isLoading: true });
+      
       // Convert TaskFilter to repository filter format
-      const repoFilter = filter ? {
-        completed: filter.status === 'completed' ? true : filter.status === 'pending' ? false : undefined,
-        category: filter.category === 'all' ? undefined : filter.category,
-        priority: filter.priority === 'all' ? undefined : filter.priority
-      } : undefined;
+      const repoFilter = {
+        completed: filter?.status === 'completed' ? true : 
+                  filter?.status === 'pending' ? false : undefined,
+        priority: filter?.priority === 'all' ? undefined : 
+                 filter?.priority as Priority | undefined,
+        category: filter?.category === 'all' ? undefined : 
+                 filter?.category
+      };
       
-      console.log('TaskStore - Fetching tasks with filter:', JSON.stringify(repoFilter));
-      
-      let tasks = await taskRepository.getTasks(repoFilter);
+      const tasks = await taskRepository.getTasks(repoFilter);
       console.log(`TaskStore - Fetched ${tasks.length} tasks from the database`);
       
       // Fix any tasks with null IDs
-      tasks = tasks.map(task => {
+      const fixedTasks = tasks.map(task => {
         if (!task.id) {
-          // Generate a unique ID for tasks that don't have one
           const newId = `fixed-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           console.log(`Fixing task with null ID: "${task.title}" -> new ID: ${newId}`);
           return { ...task, id: newId };
@@ -121,7 +127,7 @@ export const useTaskStore = create<TaskState>()((set, get) => ({
         return task;
       });
       
-      set({ tasks, isLoading: false });
+      set({ tasks: fixedTasks, isLoading: false });
     } catch (error) {
       console.error('TaskStore - Error fetching tasks:', error);
       set({ error: error instanceof Error ? error.message : 'Failed to fetch tasks', isLoading: false });
@@ -132,13 +138,16 @@ export const useTaskStore = create<TaskState>()((set, get) => ({
     return get().tasks.find(task => task.id === id);
   },
 
-  addTask: async (task) => {
+  addTask: async (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
       // Ensure task has required fields
       if (!task.title) {
         console.error('Cannot create task without a title');
         throw new Error('Task title is required');
       }
+      
+      // Set loading state
+      set({ isLoading: true });
       
       const taskId = await taskRepository.createTask(task);
       
@@ -156,9 +165,16 @@ export const useTaskStore = create<TaskState>()((set, get) => ({
       };
       
       console.log(`Created new task with ID: ${newTask.id}, Title: ${newTask.title}`);
-      set(state => ({ tasks: [...state.tasks, newTask] }));
+      
+      // Update state with the new task
+      set(state => ({ 
+        tasks: [...state.tasks, newTask],
+        isLoading: false 
+      }));
+      
       return newTask;
     } catch (error) {
+      set({ isLoading: false });
       console.error('Error creating task:', error);
       throw error;
     }
@@ -166,7 +182,7 @@ export const useTaskStore = create<TaskState>()((set, get) => ({
 
   updateTask: async (task) => {
     try {
-      const success = await taskRepository.updateTask(parseInt(task.id), task);
+      const success = await taskRepository.updateTask(task.id, task);
       if (success) {
         set(state => ({
           tasks: state.tasks.map(t => t.id === task.id ? task : t)
@@ -181,7 +197,7 @@ export const useTaskStore = create<TaskState>()((set, get) => ({
 
   deleteTask: async (id: string) => {
     try {
-      const success = await taskRepository.deleteTask(parseInt(id));
+      const success = await taskRepository.deleteTask(id);
       if (success) {
         set(state => ({
           tasks: state.tasks.filter(t => t.id !== id)
@@ -223,11 +239,19 @@ export const useTaskStore = create<TaskState>()((set, get) => ({
     try {
       const task = get().getTaskById(id);
       if (task) {
-        const updatedTask = await get().updateTask({ ...task, completed: !task.completed });
-        return !!updatedTask;
+        const success = await taskRepository.updateTask(id, { completed: !task.completed });
+        if (success) {
+          set(state => ({
+            tasks: state.tasks.map(t => 
+              t.id === id ? { ...t, completed: !t.completed } : t
+            )
+          }));
+          return true;
+        }
       }
       return false;
     } catch (error) {
+      console.error('Error toggling task completion:', error);
       return false;
     }
   },
@@ -504,6 +528,26 @@ export const useTaskStore = create<TaskState>()((set, get) => ({
     }
   },
 
+  // Add initialize implementation before createDefaultTasks
+  initialize: async () => {
+    if (get().isInitialized) return;
+    
+    try {
+      set({ isLoading: true });
+      await get().fetchTasks();
+      await get().fetchTemplates();
+      if (get().tasks.length === 0) {
+        await get().createDefaultTasks();
+      }
+      set({ isInitialized: true, isLoading: false });
+    } catch (error) {
+      set({ 
+        error: error instanceof Error ? error.message : 'Failed to initialize store',
+        isLoading: false 
+      });
+    }
+  },
+  
   // Categories
   getCategories: () => get().categories,
 
@@ -531,5 +575,5 @@ export const useTaskStore = create<TaskState>()((set, get) => ({
     } catch (error) {
       console.error('Error creating default tasks:', error);
     }
-  }
-})); 
+  },
+}));

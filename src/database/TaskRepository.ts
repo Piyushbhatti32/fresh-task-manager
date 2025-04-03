@@ -53,7 +53,7 @@ class TaskRepository {
   /**
    * Get a task by id
    */
-  async getTaskById(id: number): Promise<Task | null> {
+  async getTaskById(id: string): Promise<Task | null> {
     const result = await databaseService.executeSql(
       'SELECT * FROM tasks WHERE id = ?',
       [id]
@@ -116,7 +116,7 @@ class TaskRepository {
   /**
    * Update a task
    */
-  async updateTask(id: number, task: Partial<Task>): Promise<boolean> {
+  async updateTask(id: string | number, task: Partial<Task>): Promise<boolean> {
     const setValues: string[] = [];
     const params: any[] = [];
     
@@ -154,9 +154,11 @@ class TaskRepository {
     params.push(formatISO(new Date()));
     
     // Add id as the last parameter
-    params.push(id);
+    params.push(id.toString());
     
     const query = `UPDATE tasks SET ${setValues.join(', ')} WHERE id = ?`;
+    console.log('Executing update query:', query);
+    console.log('With parameters:', params);
     
     const result = await databaseService.executeSql(query, params);
     return result.rowsAffected > 0;
@@ -165,7 +167,7 @@ class TaskRepository {
   /**
    * Delete a task
    */
-  async deleteTask(id: number): Promise<boolean> {
+  async deleteTask(id: string): Promise<boolean> {
     const result = await databaseService.executeSql(
       'DELETE FROM tasks WHERE id = ?',
       [id]

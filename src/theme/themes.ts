@@ -20,6 +20,7 @@ export const lightColors: ThemeColors = {
   cardBackground: '#ffffff',
   shadowColor: '#000000',
   surface: '#ffffff',
+  surfaceVariant: '#f0f0f0',
   outline: '#e1e1e1',
 };
 
@@ -42,6 +43,7 @@ export const darkColors: ThemeColors = {
   cardBackground: '#2a2a2a',
   shadowColor: '#000000',
   surface: '#1e1e1e',
+  surfaceVariant: '#2c2c2c',
   outline: '#2c2c2c',
 };
 

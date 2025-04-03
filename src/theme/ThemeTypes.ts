@@ -18,6 +18,7 @@ export interface ThemeColors {
   cardBackground: string;
   shadowColor: string;
   surface: string;
+  surfaceVariant: string;
   outline: string;
 }
 

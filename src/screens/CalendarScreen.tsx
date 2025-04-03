@@ -1,99 +1,171 @@
 import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Portal, Modal, useTheme } from 'react-native-paper';
+import { View, StyleSheet, Modal } from 'react-native';
+import { useTheme } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation/types';
 import CalendarView from '../components/CalendarView';
-import TaskForm from '../components/TaskForm';
 import TaskDetail from '../components/TaskDetail';
+import { Task } from '../types/Task';
 import { useTaskStore } from '../stores/taskStore';
+import TaskForm from '../components/TaskForm';
+
+type CalendarScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function CalendarScreen() {
-  const navigation = useNavigation();
   const theme = useTheme();
-  const { createTask, toggleTaskCompletion, fetchTasks } = useTaskStore();
-  
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const navigation = useNavigation<CalendarScreenNavigationProp>();
+  const { tasks, updateTask, deleteTask } = useTaskStore();
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [showTaskForm, setShowTaskForm] = useState(false);
-  const [selectedDate, setSelectedDate] = useState('');
+  const [showTaskDetail, setShowTaskDetail] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
 
-  // Handle task completion toggle
-  const handleToggleCompletion = async (taskId: string) => {
-    console.log('CalendarScreen - handleToggleCompletion called with taskId:', taskId);
-    try {
-      // Call the toggleTaskCompletion function directly from the store
-      const result = await toggleTaskCompletion(taskId);
-      console.log('CalendarScreen - toggleTaskCompletion result:', result);
-      
-      // Refresh tasks to update the UI
-      if (result) {
-        await fetchTasks();
+  const handleTaskPress = (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (task) {
+      setSelectedTask(task);
+      setShowTaskDetail(true);
+    }
+  };
+
+  const handleTaskDelete = () => {
+    if (selectedTask) {
+      deleteTask(selectedTask.id);
+      setShowTaskDetail(false);
+      setSelectedTask(null);
+    }
+  };
+
+  const handleTaskUpdate = (updatedTask: Task) => {
+    updateTask(updatedTask);
+    setSelectedTask(updatedTask);
+  };
+
+  const handleToggleTaskCompletion = (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (task) {
+      const updatedTask = { ...task, completed: !task.completed };
+      updateTask(updatedTask);
+      if (selectedTask?.id === taskId) {
+        setSelectedTask(updatedTask);
       }
-    } catch (error) {
-      console.error('CalendarScreen - Error toggling task completion:', error);
     }
   };
-  
-  // Handle add task for a specific date
-  const handleAddTask = (date: string) => {
-    setSelectedDate(date);
-    setShowTaskForm(true);
-  };
-  
-  // Handle saving a new task
-  const handleSaveTask = async (taskData: any) => {
-    // If we have a selected date, use it for the task
-    if (selectedDate) {
-      taskData.dueDate = new Date(selectedDate);
+
+  const handleToggleSubtask = (taskId: string, subtaskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (task && task.subtasks) {
+      const updatedSubtasks = task.subtasks.map(subtask => 
+        subtask.id === subtaskId 
+          ? { ...subtask, completed: !subtask.completed }
+          : subtask
+      );
+      const updatedTask = { ...task, subtasks: updatedSubtasks };
+      updateTask(updatedTask);
+      if (selectedTask?.id === taskId) {
+        setSelectedTask(updatedTask);
+      }
     }
-    
-    await createTask(taskData);
-    setShowTaskForm(false);
   };
-  
+
+  const handlePomodoro = () => {
+    if (selectedTask) {
+      setShowTaskDetail(false);
+      navigation.navigate('Pomodoro', { taskId: selectedTask.id });
+    }
+  };
+
+  const handleAddComment = () => {
+    if (selectedTask) {
+      setShowTaskDetail(false);
+      navigation.navigate('AddComment', { taskId: selectedTask.id });
+    }
+  };
+
+  const handleShare = () => {
+    if (selectedTask) {
+      setShowTaskDetail(false);
+      navigation.navigate('ShareTask', { taskId: selectedTask.id });
+    }
+  };
+
   return (
-    <View style={styles.container}>
-      <CalendarView 
-        onTaskPress={setSelectedTaskId}
-        onToggleCompletion={handleToggleCompletion}
-        onAddTask={handleAddTask}
+    <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
+      <CalendarView
+        tasks={tasks}
+        onTaskPress={handleTaskPress}
+        onToggleCompletion={handleToggleTaskCompletion}
+        onAddTask={(date: string) => {
+          navigation.navigate('CreateTask', { date });
+        }}
       />
       
-      <Portal>
-        {/* Task detail modal */}
-        {selectedTaskId && (
-          <Modal
-            visible={!!selectedTaskId}
-            onDismiss={() => setSelectedTaskId(null)}
-            contentContainerStyle={[styles.modalContent, { backgroundColor: theme.colors.background }]}
-          >
-            <TaskDetail
-              taskId={selectedTaskId}
-              onEdit={() => {
-                navigation.navigate('EditTask', { taskId: selectedTaskId });
-                setSelectedTaskId(null);
-              }}
-              onDelete={() => {
-                // Handle delete
-                setSelectedTaskId(null);
-              }}
-              onBack={() => setSelectedTaskId(null)}
-            />
-          </Modal>
-        )}
-        
-        {/* Task form modal */}
-        <Modal
-          visible={showTaskForm}
-          onDismiss={() => setShowTaskForm(false)}
-          contentContainerStyle={[styles.modalContent, { backgroundColor: theme.colors.background }]}
-        >
-          <TaskForm
-            onClose={() => setShowTaskForm(false)}
-            onSave={handleSaveTask}
-            initialDate={selectedDate ? new Date(selectedDate) : undefined}
+      <Modal
+        visible={showTaskDetail}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowTaskDetail(false)}
+      >
+        {selectedTask && (
+          <TaskDetail
+            task={selectedTask}
+            onBack={() => setShowTaskDetail(false)}
+            onEdit={() => {
+              setShowTaskDetail(false);
+              navigation.navigate('EditTask', { taskId: selectedTask.id });
+            }}
+            onDelete={handleTaskDelete}
+            onUpdate={handleTaskUpdate}
+            onToggleCompletion={handleToggleTaskCompletion}
+            onToggleSubtask={handleToggleSubtask}
+            onPomodoro={handlePomodoro}
+            onAddComment={handleAddComment}
+            onShare={handleShare}
           />
-        </Modal>
-      </Portal>
+        )}
+      </Modal>
+
+      <Modal
+        visible={showTaskForm}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => {
+          setShowTaskForm(false);
+          setSelectedDate(undefined);
+        }}
+      >
+        <View style={[styles.modalContainer, { backgroundColor: theme.colors.surface }]}>
+          <TaskForm
+            task={selectedTask || undefined}
+            isVisible={showTaskForm}
+            onClose={() => {
+              setShowTaskForm(false);
+              setSelectedDate(undefined);
+            }}
+            onSave={async (taskData) => {
+              if (selectedTask) {
+                await handleTaskUpdate({ ...selectedTask, ...taskData });
+              } else if (selectedDate) {
+                // Create new task with selected date
+                const newTask: Task = {
+                  id: Date.now().toString(),
+                  title: taskData.title || '',
+                  description: taskData.description,
+                  dueDate: selectedDate.toISOString(),
+                  completed: false,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                  priority: taskData.priority,
+                  categoryId: taskData.categoryId,
+                  subtasks: taskData.subtasks || []
+                };
+                await handleTaskUpdate(newTask);
+              }
+            }}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -102,10 +174,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  modalContent: {
-    margin: 16,
-    borderRadius: 8,
-    padding: 16,
-    maxHeight: '90%',
+  modalContainer: {
+    flex: 1,
   },
-}); 
+});

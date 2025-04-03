@@ -26,6 +26,9 @@ import CreateGroupScreen from '../screens/CreateGroupScreen';
 import TemplatesScreen from '../screens/TemplatesScreen';
 import CreateTemplateScreen from '../screens/CreateTemplateScreen';
 import TemplateDetailScreen from '../screens/TemplateDetailScreen';
+import PomodoroScreen from '../screens/PomodoroScreen';
+import AddCommentScreen from '../screens/AddCommentScreen';
+import ShareTaskScreen from '../screens/ShareTaskScreen';
 
 // Import types
 import { RootStackParamList, MainTabsParamList } from './types';
@@ -268,6 +271,21 @@ function AppNavigator() {
         name="Templates" 
         component={TemplatesScreen}
         options={{ title: 'Templates' }}
+      />
+      <Stack.Screen 
+        name="Pomodoro" 
+        component={PomodoroScreen}
+        options={{ title: 'Pomodoro Timer' }}
+      />
+      <Stack.Screen 
+        name="AddComment" 
+        component={AddCommentScreen}
+        options={{ title: 'Add Comment' }}
+      />
+      <Stack.Screen 
+        name="ShareTask" 
+        component={ShareTaskScreen}
+        options={{ title: 'Share Task' }}
       />
       <Stack.Screen 
         name="Team" 

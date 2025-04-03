@@ -14,7 +14,7 @@ import { format } from 'date-fns';
 import { Task, SubTask } from '../types/Task';
 import { useTheme } from '../theme/ThemeProvider';
 import { Ionicons, MaterialIcons, AntDesign, MaterialCommunityIcons } from '@expo/vector-icons';
-import { Card, Surface, Badge, Avatar, IconButton, Chip } from 'react-native-paper';
+import { Card, Surface, Badge, Avatar, IconButton, Chip, Menu } from 'react-native-paper';
 
 interface TaskGridViewProps {
   tasks: Task[];
@@ -28,6 +28,7 @@ interface TaskGridViewProps {
   onTaskSelect?: (taskId: string) => void;
   onLongPress?: (taskId: string) => void;
   onStartPomodoro: (taskId: string) => void;
+  onDelete?: (taskId: string) => void;
 }
 
 export default function TaskGridView({ 
@@ -41,12 +42,14 @@ export default function TaskGridView({
   selectedTasks = [],
   onTaskSelect,
   onLongPress,
-  onStartPomodoro
+  onStartPomodoro,
+  onDelete
 }: TaskGridViewProps) {
   const { theme, isDark } = useTheme();
   const windowDimensions = useWindowDimensions();
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [showSubtasks, setShowSubtasks] = useState(false);
+  const [menuVisible, setMenuVisible] = useState<string | null>(null);
   
   // Enhanced grid layout configuration
   const numColumns = 2;
@@ -78,7 +81,6 @@ export default function TaskGridView({
   const getTagColor = (index: number) => {
     const colors = [
       theme.colors.primary,
-      theme.colors.accent,
       theme.colors.secondary,
       theme.colors.info
     ];
@@ -127,64 +129,90 @@ export default function TaskGridView({
     const hasSubtasks = item.subtasks && item.subtasks.length > 0;
     const subtasksProgress = getSubtasksProgress(item);
     
-    // Handle toggle completion
-    const handleToggle = (e: any) => {
-      e.stopPropagation();
-      console.log('Toggle task completion for id:', item.id);
-      if (onToggleCompletion) {
-        onToggleCompletion(item.id);
-      }
-    };
-    
     return (
-      <Surface 
+      <TouchableOpacity
+        onPress={() => onTaskPress(item.id)}
+        onLongPress={() => onLongPress && onLongPress(item.id)}
         style={[
-          styles.gridItem,
-          { 
-            width: itemWidth - spacing,
-            backgroundColor: theme.colors.surface,
-            marginLeft: index % numColumns !== 0 ? spacing : 0,
-            marginBottom: spacing,
-            borderColor: isSelected ? theme.colors.primary : 'transparent',
-            borderWidth: isSelected ? 2 : 0,
-          }
+          styles.itemContainer,
+          { width: itemWidth }
         ]}
-        elevation={2}
       >
-        <TouchableOpacity
-          style={styles.cardContent}
-          onPress={() => onTaskPress(item.id)}
-          onLongPress={() => onLongPress && onLongPress(item.id)}
-          delayLongPress={300}
+        <Card 
+          style={[
+            styles.card,
+            isSelected && styles.selectedCard,
+            { backgroundColor: isDark ? theme.colors.surface : theme.colors.background }
+          ]}
         >
-          {/* Status indicator */}
-          <View 
-            style={[
-              styles.statusIndicator, 
-              { 
-                backgroundColor: item.completed
-                  ? theme.colors.success
-                  : getPriorityColor(item.priority)
-              }
-            ]} 
-          />
-          
-          {/* Header with avatar and actions */}
-          <View style={styles.cardHeader}>
-            <View style={styles.headerActions}>
-              {hasSubtasks && (
-                <IconButton 
-                  icon="playlist-check" 
-                  size={18}
-                  style={styles.actionButton}
-                  onPress={() => handleShowSubtasks(item)}
-                />
-              )}
+          <Card.Content style={styles.cardContent}>
+            {/* Header with status chip and actions */}
+            <View style={styles.header}>
+              <View style={styles.statusContainer}>
+                <Chip 
+                  icon={item.completed ? "check-circle" : "clock-outline"}
+                  compact
+                  style={[
+                    styles.statusChip,
+                    { 
+                      backgroundColor: item.completed ? 
+                        (isDark ? '#4CAF5060' : '#4CAF5040') : 
+                        (isDark ? '#FFC10760' : '#FFC10740'),
+                      height: 28,
+                      paddingHorizontal: 8,
+                    }
+                  ]}
+                >
+                  {item.completed ? 'Completed' : 'Pending'}
+                </Chip>
+              </View>
+              <Menu
+                visible={menuVisible === item.id}
+                onDismiss={() => setMenuVisible(null)}
+                anchor={
+                  <IconButton
+                    icon="dots-vertical"
+                    size={20}
+                    onPress={() => setMenuVisible(item.id)}
+                    style={styles.menuButton}
+                  />
+                }
+                contentStyle={{ backgroundColor: theme.colors.surface }}
+              >
+                {onStartPomodoro && (
+                  <Menu.Item
+                    onPress={() => {
+                      setMenuVisible(null);
+                      onStartPomodoro(item.id);
+                    }}
+                    title="Start Pomodoro"
+                    leadingIcon="timer-outline"
+                  />
+                )}
+                {onToggleCompletion && (
+                  <Menu.Item
+                    onPress={() => {
+                      setMenuVisible(null);
+                      onToggleCompletion(item.id);
+                    }}
+                    title={item.completed ? "Mark Incomplete" : "Mark Complete"}
+                    leadingIcon={item.completed ? "check-circle" : "circle-outline"}
+                  />
+                )}
+                {onDelete && (
+                  <Menu.Item
+                    onPress={() => {
+                      setMenuVisible(null);
+                      onDelete(item.id);
+                    }}
+                    title="Delete"
+                    leadingIcon="delete"
+                  />
+                )}
+              </Menu>
             </View>
-          </View>
-          
-          {/* Title and description */}
-          <View style={styles.textContent}>
+
+            {/* Title */}
             <View style={styles.titleContainer}>
               <MaterialIcons 
                 name={getPriorityIcon(item.priority)} 
@@ -198,93 +226,62 @@ export default function TaskGridView({
                   { color: theme.colors.text },
                   item.completed && styles.completedText
                 ]}
-                numberOfLines={2}
+                numberOfLines={1}
+                ellipsizeMode="tail"
               >
                 {item.title}
               </Text>
             </View>
             
-            {item.description ? (
+            {/* Description */}
+            {item.description && (
               <Text 
                 style={[
                   styles.description,
-                  { color: 'rgba(0, 0, 0, 0.6)' },
+                  { color: theme.colors.inactive },
                   item.completed && styles.completedText
                 ]}
                 numberOfLines={2}
               >
                 {item.description}
               </Text>
-            ) : null}
-          </View>
-          
-          {/* Subtasks progress bar */}
-          {subtasksProgress && (
-            <View style={styles.progressContainer}>
-              <View style={styles.progressWrapper}>
-                <View 
-                  style={[
-                    styles.progressBar,
-                    { width: `${subtasksProgress.percentage}%`, backgroundColor: theme.colors.primary }
-                  ]}
-                />
-              </View>
-              <Text style={[styles.progressText, { color: theme.colors.secondary }]}>
-                {subtasksProgress.completed}/{subtasksProgress.total}
-              </Text>
-            </View>
-          )}
-          
-          {/* Footer with metadata */}
-          <View style={styles.cardFooter}>
-            {item.dueDate && (
-              <View style={styles.metaItem}>
-                <MaterialCommunityIcons 
-                  name="clock-outline" 
-                  size={14} 
-                  color="#1976D2" 
-                />
-                <Text style={[styles.metaText, { color: '#1976D2' }]}>
-                  {formatDueDate(item.dueDate)}
+            )}
+            
+            {/* Subtasks progress bar */}
+            {subtasksProgress && (
+              <View style={styles.progressContainer}>
+                <View style={styles.progressWrapper}>
+                  <View 
+                    style={[
+                      styles.progressBar,
+                      { width: `${subtasksProgress.percentage}%`, backgroundColor: theme.colors.primary }
+                    ]}
+                  />
+                </View>
+                <Text style={[styles.progressText, { color: theme.colors.secondary }]}>
+                  {subtasksProgress.completed}/{subtasksProgress.total}
                 </Text>
               </View>
             )}
             
-            {item.tags && item.tags.length > 0 && (
-              <Chip 
-                style={[styles.tagChip, { backgroundColor: getTagColor(0) }]}
-                textStyle={{ color: "#fff", fontSize: 10 }}
-                compact
-              >
-                {item.tags[0]}
-              </Chip>
-            )}
-            
-            <View style={styles.iconContainer}>
-              <IconButton 
-                icon={item.completed ? "check-circle" : "circle-outline"}
-                size={16}
-                iconColor={item.completed ? theme.colors.success : theme.colors.text}
-                style={styles.footerIcon}
-                onPress={handleToggle}
-              />
-              
-              {onStartPomodoro && (
-                <IconButton
-                  icon="timer-outline"
-                  size={16}
-                  iconColor={theme.colors.primary}
-                  style={styles.footerIcon}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    onStartPomodoro(item.id);
-                  }}
-                />
+            {/* Footer with metadata */}
+            <View style={styles.cardFooter}>
+              {item.dueDate && (
+                <View style={styles.metaItem}>
+                  <MaterialCommunityIcons 
+                    name="clock-outline" 
+                    size={14} 
+                    color={theme.colors.primary} 
+                  />
+                  <Text style={[styles.metaText, { color: theme.colors.primary }]}>
+                    {formatDueDate(item.dueDate)}
+                  </Text>
+                </View>
               )}
             </View>
-          </View>
-        </TouchableOpacity>
-      </Surface>
+          </Card.Content>
+        </Card>
+      </TouchableOpacity>
     );
   };
   
@@ -439,121 +436,92 @@ const styles = StyleSheet.create({
   listContainer: {
     flexGrow: 1,
   },
-  gridItem: {
-    borderRadius: 12,
-    overflow: 'hidden',
+  itemContainer: {
+    padding: 4,
+  },
+  card: {
+    margin: 0,
+    elevation: 2,
   },
   cardContent: {
-    padding: 0,
-    height: 166,
-    position: 'relative',
-    paddingBottom: 4,
+    padding: 8,
   },
-  statusIndicator: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-  },
-  cardHeader: {
+  header: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginBottom: 6,
-    paddingTop: 12,
-    paddingRight: 12,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
-  headerActions: {
+  statusContainer: {
+    flex: 1,
     flexDirection: 'row',
+    alignItems: 'center',
   },
-  actionButton: {
+  statusChip: {
+    alignSelf: 'flex-start',
+  },
+  menuButton: {
     margin: 0,
     padding: 0,
-    width: 28,
     height: 28,
-  },
-  textContent: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    flex: 1,
-    paddingRight: 20,
+    width: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   titleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
-    width: '100%',
-    paddingRight: 8,
-  },
-  priorityIcon: {
-    marginRight: 8,
+    marginBottom: 8,
   },
   title: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
-    marginBottom: 6,
     flex: 1,
-    paddingRight: 8,
+    flexShrink: 1,
+  },
+  priorityIcon: {
+    marginRight: 4,
   },
   description: {
-    fontSize: 12,
+    fontSize: 14,
     marginBottom: 8,
-    opacity: 0.8,
-    paddingLeft: 20,
-  },
-  completedText: {
-    textDecorationLine: 'line-through',
-    opacity: 0.7,
   },
   progressContainer: {
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: 8,
   },
   progressWrapper: {
-    flex: 1,
     height: 4,
     backgroundColor: 'rgba(0,0,0,0.1)',
     borderRadius: 2,
-    overflow: 'hidden',
-    marginRight: 8,
+    marginBottom: 4,
   },
   progressBar: {
     height: '100%',
+    borderRadius: 2,
   },
   progressText: {
-    fontSize: 10,
+    fontSize: 12,
   },
   cardFooter: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingBottom: 8,
+    marginTop: 'auto',
   },
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: 4,
   },
   metaText: {
     fontSize: 12,
     marginLeft: 4,
   },
-  tagChip: {
-    height: 20,
-    marginLeft: 'auto',
+  completedText: {
+    textDecorationLine: 'line-through',
+    opacity: 0.7,
   },
-  iconContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  footerIcon: {
-    margin: 0,
-    padding: 0,
-    width: 24,
-    height: 24,
+  selectedCard: {
+    borderWidth: 2,
+    borderColor: '#007AFF',
   },
   // Subtasks modal styles
   modalContainer: {
