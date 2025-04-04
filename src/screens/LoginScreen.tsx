@@ -26,12 +26,21 @@ import { Ionicons } from '@expo/vector-icons';
 import AnimatedWelcome from '../components/AnimatedWelcome';
 import { Storage } from '../utils/storage';
 import { auth } from '../config/firebase';
-import { GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import { 
+  GoogleAuthProvider, 
+  signInWithCredential, 
+  signInWithEmailAndPassword, 
+  onAuthStateChanged, 
+  signInAnonymously,
+  User as FirebaseUser
+} from 'firebase/auth';
 import * as WebBrowser from 'expo-web-browser';
-import * as Google from 'expo-auth-session/providers/google';
-import { ResponseType } from 'expo-auth-session';
 import { userService } from '../services/userService';
 import { createUserWithEmailAndPassword, sendPasswordResetEmail, sendEmailVerification } from 'firebase/auth';
+import { GoogleSignInButton } from '../components/GoogleSignInButton';
+import { UserProfile, UserProfileUpdate } from '../types/user';
+import { UserCredential } from '../types/auth';
+import Constants from 'expo-constants';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -49,13 +58,8 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [showWelcome, setShowWelcome] = useState(true);
   const [isSignUp, setIsSignUp] = useState(false);
-
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    clientId: '865106052518-26mpbiv13vgjn77ck7dtroo8e57b6jql.apps.googleusercontent.com',
-    responseType: ResponseType.Token,
-    scopes: ['profile', 'email'],
-    redirectUri: 'https://auth.expo.io/@piyushbhatti32/fresh-task-manager',
-  });
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [userName, setUserName] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     checkStoredCredentials();
@@ -69,16 +73,11 @@ export default function LoginScreen() {
   }, []);
 
   useEffect(() => {
-    if (response?.type === 'success') {
-      handleGoogleSignInSuccess(response.authentication?.accessToken);
-    }
-  }, [response]);
-
-  useEffect(() => {
     // Check for existing auth state
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      // No need to navigate manually - AppNavigator will handle this
-      // based on auth.currentUser
+      if (user?.displayName) {
+        setUserName(user.displayName);
+      }
     });
 
     // Cleanup subscription
@@ -164,46 +163,61 @@ export default function LoginScreen() {
     }
   };
 
-  const handleGoogleSignInSuccess = async (accessToken: string | undefined) => {
-    if (!accessToken) {
-      setError('Failed to get access token');
-      return;
-    }
-
+  const handleGoogleSignInSuccess = async (userCredential: any) => {
+    setIsLoading(true);
+    setError(null);
+    
     try {
-      setIsLoading(true);
-      setError(null);
+      console.log('Firebase Sign-In Success:', userCredential.user.uid);
       
-      // Create a Google credential with the token
-      const googleCredential = GoogleAuthProvider.credential(null, accessToken);
+      // Set user name if available
+      if (userCredential.user.displayName) {
+        setUserName(userCredential.user.displayName);
+      }
       
-      // Sign-in the user with the credential
-      await signInWithCredential(auth, googleCredential);
+      // Check if this is a new user
+      const isNewUser = userCredential.additionalUserInfo?.isNewUser || false;
+      
+      if (isNewUser) {
+        // Create a new user profile for new users
+        const userProfile: UserProfile = {
+          uid: userCredential.user.uid,
+          email: userCredential.user.email || 'anonymous@example.com',
+          displayName: userCredential.user.displayName,
+          photoURL: userCredential.user.photoURL,
+          emailVerified: userCredential.user.emailVerified,
+          isAnonymous: userCredential.user.isAnonymous,
+          createdAt: new Date(),
+          lastLogin: new Date(),
+          settings: {
+            theme: 'system' as const,
+            notifications: true,
+            language: 'en'
+          }
+        };
+        
+        await userService.createUserProfile(userProfile);
+        console.log('New user profile created');
+      } else {
+        // Update last login for existing users
+        await userService.updateUserProfile(userCredential.user.uid, {
+          lastLogin: new Date()
+        });
+        console.log('Existing user profile updated');
+      }
+      
       // Navigation will be handled automatically by AppNavigator
-    } catch (error) {
-      console.error('Google Sign In Error:', error);
-      setError('Google sign in failed. Please try again.');
+    } catch (error: any) {
+      console.error('Google Sign-In Error:', error);
+      setError('Google sign-in failed: ' + (error.message || 'Unknown error'));
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      const result = await promptAsync();
-      
-      if (result?.type !== 'success') {
-        setError('Google sign in was cancelled or failed');
-      }
-    } catch (error) {
-      console.error('Google Sign In Error:', error);
-      setError('Google sign in failed. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleGoogleSignInError = (error: Error) => {
+    console.error('Google Sign-In Error:', error);
+    setError(error.message || 'Google sign-in failed. Please try again.');
   };
 
   const handleGuestLogin = async () => {
@@ -211,51 +225,31 @@ export default function LoginScreen() {
     setError(null);
     
     try {
-      // Sign in anonymously with Firebase Auth
       const userCredential = await signInAnonymously(auth);
+      const user = userCredential.user;
       
-      // Create a guest user profile
-      await userService.createUserProfile(userCredential.user);
+      const userProfile: UserProfile = {
+        uid: user.uid,
+        email: `guest_${user.uid}@example.com`,
+        displayName: 'Guest User',
+        photoURL: null,
+        emailVerified: false,
+        isAnonymous: true,
+        createdAt: new Date(),
+        lastLogin: new Date(),
+        settings: {
+          theme: 'system' as const,
+          notifications: true,
+          language: 'en'
+        }
+      };
+      
+      await userService.createUserProfile(userProfile);
       
       // Navigation will be handled automatically by AppNavigator
     } catch (error: any) {
-      console.error('Guest Login Error:', error);
-      let errorMessage = 'Guest login failed. Please try again.';
-      
-      switch (error.code) {
-        case 'auth/admin-restricted-operation':
-          errorMessage = 'Guest login is currently disabled. Please sign in with email or Google.';
-          break;
-        case 'auth/network-request-failed':
-          errorMessage = 'Network error. Please check your internet connection.';
-          break;
-        case 'auth/too-many-requests':
-          errorMessage = 'Too many attempts. Please try again later.';
-          break;
-        default:
-          errorMessage = 'Unable to continue as guest. Please try another sign-in method.';
-      }
-      
-      setError(errorMessage);
-      // Show error in a more user-friendly way
-      Alert.alert(
-        'Guest Login Failed',
-        errorMessage,
-        [
-          {
-            text: 'Try Email Login',
-            onPress: () => setIsSignUp(false)
-          },
-          {
-            text: 'Try Google Login',
-            onPress: handleGoogleSignIn
-          },
-          {
-            text: 'Cancel',
-            style: 'cancel'
-          }
-        ]
-      );
+      console.error('Guest login error:', error);
+      setError('Failed to sign in as guest. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -264,11 +258,6 @@ export default function LoginScreen() {
   const handleSignUp = async () => {
     if (password !== confirmPassword) {
       setError('Passwords do not match');
-      Alert.alert(
-        'Password Mismatch',
-        'The passwords you entered do not match. Please try again.',
-        [{ text: 'OK' }]
-      );
       return;
     }
 
@@ -279,7 +268,23 @@ export default function LoginScreen() {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       
       // Create user profile
-      await userService.createUserProfile(userCredential.user);
+      const userProfile: UserProfile = {
+        uid: userCredential.user.uid,
+        email: userCredential.user.email || 'anonymous@example.com',
+        displayName: userCredential.user.displayName,
+        photoURL: userCredential.user.photoURL,
+        emailVerified: userCredential.user.emailVerified,
+        isAnonymous: userCredential.user.isAnonymous,
+        createdAt: new Date(),
+        lastLogin: new Date(),
+        settings: {
+          theme: 'system' as const,
+          notifications: true,
+          language: 'en'
+        }
+      };
+      
+      await userService.createUserProfile(userProfile);
       
       // Send verification email
       await sendEmailVerification(userCredential.user);
@@ -346,30 +351,77 @@ export default function LoginScreen() {
     return email.includes('@') && password.length >= 6;
   };
 
+  const handleWelcomeFinish = () => {
+    // Optional: Add any logic to execute after welcome animation
+    console.log('Welcome animation finished');
+  };
+
   if (showWelcome) {
-    return <AnimatedWelcome onFinish={() => setShowWelcome(false)} />;
+    return <AnimatedWelcome onFinish={handleWelcomeFinish} />;
   }
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        bounces={false}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.headerContainer}>
           <View style={styles.logoContainer}>
-            <Surface style={styles.logoSurface}>
+            <Surface style={[styles.logoSurface, { backgroundColor: 'transparent' }]}>
               <Image 
-                source={require('../../assets/icon.png')}
+                source={require('../../assets/icon.png')} 
                 style={styles.logoImage}
+                resizeMode="contain"
               />
             </Surface>
-            <Text style={styles.appName}>Task Manager</Text>
+            <Text style={[styles.appName, { color: theme.colors.onBackground }]}>
+              Task Manager
+            </Text>
+            <Text style={[styles.tagline, { color: theme.colors.onBackground }]}>
+              Organize your tasks efficiently
+            </Text>
           </View>
-          <Text style={styles.tagline}>Organize your day, boost your productivity</Text>
         </View>
-
-        <View style={styles.formContainer}>
+        
+        <Surface style={[styles.formContainer, { backgroundColor: theme.colors.surface }]}>
+          <Text style={[styles.title, { color: theme.colors.primary }]}>
+            {isForgotPassword ? 'Reset Password' : (isSignUp ? 'Create Account' : 'Welcome')}
+          </Text>
+          
+          {error && (
+            <View style={styles.errorContainer}>
+              <Text style={[styles.errorText, { color: theme.colors.error }]}>
+                {error}
+              </Text>
+            </View>
+          )}
+          
+          {!isForgotPassword && !isSignUp && (
+            <View style={styles.socialButtonsContainer}>
+              <GoogleSignInButton
+                onSignInSuccess={handleGoogleSignInSuccess}
+                onSignInError={handleGoogleSignInError}
+                style={styles.googleButton}
+              />
+              
+              <Button 
+                mode="outlined" 
+                onPress={handleGuestLogin}
+                disabled={isLoading}
+                icon="account"
+                style={styles.guestButton}
+              >
+                Continue as Guest
+              </Button>
+            </View>
+          )}
+          
           <TextInput
             label="Email"
             value={email}
@@ -426,10 +478,6 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
           
-          {error && (
-            <Text style={styles.errorText}>{error}</Text>
-          )}
-          
           <Button 
             mode="contained" 
             onPress={isSignUp ? handleSignUp : handleLogin}
@@ -439,39 +487,40 @@ export default function LoginScreen() {
           >
             {isSignUp ? 'Sign Up' : 'Log In'}
           </Button>
-
-          <View style={styles.dividerContainer}>
-            <Divider style={styles.divider} />
-            <Text style={styles.dividerText}>OR</Text>
-            <Divider style={styles.divider} />
-          </View>
-
-          <Button 
-            mode="outlined" 
-            onPress={handleGoogleSignIn}
-            disabled={isLoading}
-            icon="google"
-            style={styles.googleButton}
-          >
-            Continue with Google
-          </Button>
           
-          <Button 
-            mode="outlined" 
-            onPress={handleGuestLogin}
-            style={styles.guestButton}
-          >
-            Continue as Guest
-          </Button>
-        </View>
+          <View style={styles.footer}>
+            <Text style={[styles.footerText, { color: theme.colors.onBackground }]}>
+              By logging in, you agree to our{' '}
+              <Text 
+                style={[styles.footerLink, { color: theme.colors.primary }]}
+                onPress={() => {
+                  // TODO: Navigate to Terms of Service
+                  Alert.alert('Coming Soon', 'Terms of Service will be available soon.');
+                }}
+              >
+                Terms of Service
+              </Text>
+              {' '}and{' '}
+              <Text 
+                style={[styles.footerLink, { color: theme.colors.primary }]}
+                onPress={() => {
+                  // TODO: Navigate to Privacy Policy
+                  Alert.alert('Coming Soon', 'Privacy Policy will be available soon.');
+                }}
+              >
+                Privacy Policy
+              </Text>
+              .
+            </Text>
+          </View>
+        </Surface>
         
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            {isSignUp ? 'Already have an account?' : "Don't have an account?"}
+        <View style={styles.spacer} />
+        
+        <View style={styles.creatorContainer}>
+          <Text style={[styles.creatorText, { color: theme.colors.onBackground }]}>
+            Created with ❤️ by Piyush
           </Text>
-          <TouchableOpacity onPress={() => setIsSignUp(!isSignUp)}>
-            <Text style={styles.signupText}>{isSignUp ? 'Log In' : 'Sign Up'}</Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -486,12 +535,11 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingBottom: 24,
-    justifyContent: 'center',
   },
   headerContainer: {
     alignItems: 'center',
-    padding: 32,
-    marginTop: 30,
+    padding: 24,
+    marginTop: 20,
   },
   logoContainer: {
     alignItems: 'center',
@@ -503,7 +551,6 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 4,
     marginBottom: 16,
     overflow: 'hidden',
   },
@@ -524,6 +571,12 @@ const styles = StyleSheet.create({
   formContainer: {
     padding: 24,
   },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
   input: {
     marginBottom: 16,
   },
@@ -541,25 +594,34 @@ const styles = StyleSheet.create({
   forgotPasswordText: {
     color: '#007BFF',
   },
-  errorText: {
-    color: 'red',
+  errorContainer: {
+    backgroundColor: 'rgba(255, 0, 0, 0.1)',
+    padding: 10,
+    borderRadius: 5,
     marginBottom: 16,
+    width: '100%',
+  },
+  errorText: {
+    textAlign: 'center',
   },
   loginButton: {
     marginBottom: 16,
     paddingVertical: 8,
   },
   guestButton: {
-    marginBottom: 16,
+    marginBottom: 10,
   },
   footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
+    marginTop: 16,
+    paddingHorizontal: 16,
   },
   footerText: {
-    marginRight: 8,
+    fontSize: 12,
+    textAlign: 'center',
+    opacity: 0.7,
+  },
+  footerLink: {
+    textDecorationLine: 'underline',
   },
   signupText: {
     color: '#007BFF',
@@ -579,7 +641,27 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   googleButton: {
-    marginBottom: 12,
-    borderColor: '#4285F4',
+    marginBottom: 10,
+  },
+  buttonContainer: {
+    width: '100%',
+    maxWidth: 300,
+  },
+  socialButtonsContainer: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  spacer: {
+    minHeight: 20,
+  },
+  creatorContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  creatorText: {
+    fontSize: 12,
+    textAlign: 'center',
+    opacity: 0.7,
   },
 }); 

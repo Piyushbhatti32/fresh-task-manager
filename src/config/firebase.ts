@@ -1,5 +1,5 @@
 import { initializeApp, getApp, getApps } from 'firebase/app';
-import { initializeAuth, getReactNativePersistence, getAuth } from 'firebase/auth';
+import { initializeAuth, getAuth, Auth } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAnalytics, isSupported } from 'firebase/analytics';
 import { 
@@ -10,10 +10,32 @@ import {
   disableNetwork,
   initializeFirestore,
   memoryLocalCache,
-  connectFirestoreEmulator
+  connectFirestoreEmulator,
+  Firestore
 } from 'firebase/firestore';
-import NetInfo from '@react-native-community/netinfo';
+import NetInfo, { NetInfoSubscription } from '@react-native-community/netinfo';
 import { Platform } from 'react-native';
+
+// Check for required environment variables
+const requiredEnvVars = [
+  'EXPO_PUBLIC_FIREBASE_API_KEY',
+  'EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN',
+  'EXPO_PUBLIC_FIREBASE_PROJECT_ID',
+  'EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET',
+  'EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID',
+  'EXPO_PUBLIC_FIREBASE_APP_ID'
+] as const;
+
+const missingEnvVars = requiredEnvVars.filter(
+  varName => !process.env[varName]
+);
+
+if (missingEnvVars.length > 0) {
+  throw new Error(
+    `Missing required environment variables:\n${missingEnvVars.join('\n')}\n` +
+    'Please check your .env file and ensure all required variables are set.'
+  );
+}
 
 // Disable WebChannel warnings
 if (Platform.OS !== 'web') {
@@ -29,13 +51,12 @@ if (Platform.OS !== 'web') {
 // Replace this with your Firebase configuration from Firebase Console
 // Project Settings > General > Your apps > Web app
 const firebaseConfig = {
-  apiKey: "AIzaSyBC1cpIK_tKqnylNgQSdrv7kxoEfzLGtDs",
-  authDomain: "task-manager-8dad8.firebaseapp.com",
-  projectId: "task-manager-8dad8",
-  storageBucket: "task-manager-8dad8.firebasestorage.app",
-  messagingSenderId: "865106052518",
-  appId: "1:865106052518:web:a2c54ec13870d813617b67",
-  measurementId: "G-5B3K05L5NZ"
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID
 };
 
 // Initialize Firebase
@@ -48,43 +69,32 @@ try {
   }
 } catch (error) {
   console.error('Firebase initialization error:', error);
-  app = getApp();
+  throw error;
 }
 
-// Initialize Auth with AsyncStorage persistence
-let auth;
+// Initialize Auth
+let auth: Auth;
 try {
-  if (!getAuth()) {
-    auth = initializeAuth(app, {
-      persistence: getReactNativePersistence(AsyncStorage)
-    });
-  } else {
-    auth = getAuth(app);
-  }
+  auth = getAuth(app);
 } catch (error) {
   console.error('Auth initialization error:', error);
-  auth = getAuth(app);
+  throw error;
 }
 
 // Initialize Firestore with memory cache for better compatibility
-let db;
+let db: Firestore;
 try {
-  if (!getFirestore()) {
-    db = initializeFirestore(app, {
-      localCache: memoryLocalCache(),
-      experimentalForceLongPolling: true,
-      useFetchStreams: false
-    });
-  } else {
-    db = getFirestore(app);
-  }
+  db = initializeFirestore(app, {
+    localCache: memoryLocalCache(),
+    experimentalForceLongPolling: true
+  });
 } catch (error) {
   console.error('Firestore initialization error:', error);
-  db = getFirestore(app);
+  throw error;
 }
 
 // Monitor network state and enable/disable Firestore network
-let unsubscribeNetInfo;
+let unsubscribeNetInfo: NetInfoSubscription | undefined;
 try {
   unsubscribeNetInfo = NetInfo.addEventListener(state => {
     if (state.isConnected) {

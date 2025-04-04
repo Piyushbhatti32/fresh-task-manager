@@ -1,6 +1,6 @@
-import { doc, setDoc, getDoc, updateDoc, serverTimestamp, getFirestore } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, serverTimestamp, getFirestore, Firestore } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { UserProfile } from '../types/user';
+import { UserProfile, UserProfileUpdate } from '../types/user';
 import { User } from 'firebase/auth';
 import NetInfo from '@react-native-community/netinfo';
 
@@ -36,189 +36,57 @@ const ensureFirestoreInitialized = async () => {
   }
 };
 
-export const userService = {
-  async createUserProfile(user: User): Promise<void> {
-    await ensureFirestoreInitialized();
-    const userRef = doc(db, 'users', user.uid);
-    const userProfile: UserProfile = {
-      uid: user.uid,
-      email: user.isAnonymous ? 'guest@example.com' : (user.email || ''),
-      displayName: user.isAnonymous ? 'Guest User' : user.displayName,
-      photoURL: user.photoURL,
-      createdAt: new Date(),
-      lastLogin: new Date(),
-      isAnonymous: user.isAnonymous,
-      settings: {
-        theme: 'system',
-        notifications: true,
-        language: 'en'
-      }
-    };
+export interface IUserService {
+  createUserProfile(userProfile: UserProfile): Promise<void>;
+  updateUserProfile(uid: string, updates: UserProfileUpdate): Promise<void>;
+  getUserProfile(uid: string): Promise<UserProfile | null>;
+}
 
-    try {
-      await setDoc(userRef, userProfile, { merge: true });
-      memoryCache.set(user.uid, userProfile);
-      cacheExpiry.set(user.uid, Date.now() + CACHE_DURATION);
-    } catch (error: any) {
-      console.error('Error creating user profile:', error);
-      if (error.code === 'unavailable' || error.code === 'failed-precondition') {
-        console.log('Device is offline, data will be synced when online');
-        memoryCache.set(user.uid, userProfile);
-        cacheExpiry.set(user.uid, Date.now() + CACHE_DURATION);
-      }
+class UserService implements IUserService {
+  private db: Firestore;
+
+  constructor() {
+    this.db = db;
+  }
+
+  async createUserProfile(userProfile: UserProfile): Promise<void> {
+    const userRef = doc(this.db, 'users', userProfile.uid);
+    await setDoc(userRef, {
+      ...userProfile,
+      createdAt: userProfile.createdAt.toISOString(),
+      lastLogin: userProfile.lastLogin.toISOString()
+    });
+  }
+
+  async updateUserProfile(uid: string, updates: UserProfileUpdate): Promise<void> {
+    const userRef = doc(this.db, 'users', uid);
+    const updateData: Record<string, any> = { ...updates };
+    
+    if (updates.lastLogin) {
+      updateData.lastLogin = updates.lastLogin.toISOString();
     }
-  },
+    
+    await updateDoc(userRef, updateData);
+  }
 
   async getUserProfile(uid: string): Promise<UserProfile | null> {
-    if (!uid) {
-      console.error('getUserProfile called with invalid uid');
+    const userRef = doc(this.db, 'users', uid);
+    const userDoc = await getDoc(userRef);
+    
+    if (!userDoc.exists()) {
       return null;
     }
     
-    // Check memory cache first before initializing Firestore
-    const cachedProfile = memoryCache.get(uid);
-    if (cachedProfile && isCacheValid(uid)) {
-      console.log('Using cached profile for user:', uid);
-      return cachedProfile;
-    }
-    
-    try {
-      await ensureFirestoreInitialized();
-      const userRef = doc(db, 'users', uid);
-      
-      // Try to get from Firestore with timeout
-      const userDoc = await Promise.race([
-        getDoc(userRef),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)) // 5 second timeout
-      ]);
-      
-      if (userDoc && 'exists' in userDoc && userDoc.exists()) {
-        const profile = userDoc.data() as UserProfile;
-        // Update cache with longer expiry
-        memoryCache.set(uid, profile);
-        cacheExpiry.set(uid, Date.now() + CACHE_DURATION);
-        return profile;
-      }
-      
-      // If not in Firestore but in cache, use cache
-      if (cachedProfile) {
-        return cachedProfile;
-      }
-      
-      // No profile found, return null
-      return null;
-    } catch (error: any) {
-      console.error('Error getting user profile:', error);
-      
-      // Return cached profile if available, even if expired
-      if (cachedProfile) {
-        return cachedProfile;
-      }
-      
-      // Return null on error
-      return null;
-    }
-  },
-
-  async updateUserProfile(uid: string, data: Partial<UserProfile>): Promise<void> {
-    await ensureFirestoreInitialized();
-    const userRef = doc(db, 'users', uid);
-    let retries = 0;
-
-    while (retries < MAX_RETRIES) {
-      try {
-        const updateData = {
-          ...data,
-          lastLogin: serverTimestamp()
-        };
-        await updateDoc(userRef, updateData);
-        
-        // Update memory cache
-        const currentProfile = memoryCache.get(uid);
-        if (currentProfile) {
-          memoryCache.set(uid, { ...currentProfile, ...updateData });
-        }
-        
-        return;
-      } catch (error: any) {
-        console.error(`Error updating user profile (attempt ${retries + 1}):`, error);
-        if (error.code === 'unavailable' || error.code === 'failed-precondition') {
-          // If offline, update memory cache
-          console.log('Device is offline, changes will be synced when online');
-          const currentProfile = memoryCache.get(uid);
-          if (currentProfile) {
-            memoryCache.set(uid, { ...currentProfile, ...data });
-          }
-          return;
-        }
-        retries++;
-        if (retries < MAX_RETRIES) {
-          await delay(RETRY_DELAY);
-        }
-      }
-    }
-  },
-
-  async updateUserSettings(uid: string, settings: Partial<UserProfile['settings']>): Promise<void> {
-    await ensureFirestoreInitialized();
-    const userRef = doc(db, 'users', uid);
-    let retries = 0;
-
-    while (retries < MAX_RETRIES) {
-      try {
-        await updateDoc(userRef, {
-          'settings': settings
-        });
-        
-        // Update memory cache
-        const currentProfile = memoryCache.get(uid);
-        if (currentProfile) {
-          memoryCache.set(uid, {
-            ...currentProfile,
-            settings: { ...currentProfile.settings, ...settings }
-          });
-        }
-        
-        return;
-      } catch (error: any) {
-        console.error(`Error updating user settings (attempt ${retries + 1}):`, error);
-        if (error.code === 'unavailable' || error.code === 'failed-precondition') {
-          // If offline, update memory cache
-          console.log('Device is offline, settings will be synced when online');
-          const currentProfile = memoryCache.get(uid);
-          if (currentProfile) {
-            memoryCache.set(uid, {
-              ...currentProfile,
-              settings: { ...currentProfile.settings, ...settings }
-            });
-          }
-          return;
-        }
-        retries++;
-        if (retries < MAX_RETRIES) {
-          await delay(RETRY_DELAY);
-        }
-      }
-    }
-  },
-
-  async isAnonymousUser(uid: string): Promise<boolean> {
-    await ensureFirestoreInitialized();
-    try {
-      const userProfile = await this.getUserProfile(uid);
-      return userProfile?.isAnonymous || false;
-    } catch (error: any) {
-      console.error('Error checking anonymous status:', error);
-      if (error.code === 'unavailable' || error.code === 'failed-precondition') {
-        // If offline, use cached data
-        console.log('Device is offline, using cached data');
-        const cachedProfile = memoryCache.get(uid);
-        return cachedProfile?.isAnonymous || false;
-      }
-      return true; // Default to true if error
-    }
+    const data = userDoc.data();
+    return {
+      ...data,
+      createdAt: new Date(data.createdAt),
+      lastLogin: new Date(data.lastLogin)
+    } as UserProfile;
   }
-};
+}
+
+export const userService = new UserService();
 
 // Add a function to preload user profile in background
 export const preloadUserProfile = async (uid: string): Promise<void> => {

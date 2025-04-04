@@ -12,12 +12,12 @@ import {
 import { useTheme } from '../theme/ThemeProvider';
 import { LinearGradient } from 'expo-linear-gradient';
 
-interface AnimatedWelcomeProps {
+export interface AnimatedWelcomeProps {
   userName?: string;
-  onFinish: () => void;
+  onFinish?: () => void;
 }
 
-export default function AnimatedWelcome({ userName = 'there', onFinish }: AnimatedWelcomeProps) {
+const AnimatedWelcome: React.FC<AnimatedWelcomeProps> = ({ userName = 'there', onFinish }) => {
   const { theme } = useTheme();
   const [isDismissing, setIsDismissing] = useState(false);
   const [pressedIcon, setPressedIcon] = useState<string | null>(null);
@@ -80,7 +80,11 @@ export default function AnimatedWelcome({ userName = 'there', onFinish }: Animat
         duration: 500,
         useNativeDriver: true,
       })
-    ]).start();
+    ]).start(() => {
+      if (onFinish) {
+        onFinish();
+      }
+    });
     
     // Continuous bounce animation
     Animated.loop(
@@ -117,7 +121,9 @@ export default function AnimatedWelcome({ userName = 'there', onFinish }: Animat
         useNativeDriver: true,
       })
     ]).start(() => {
-      onFinish();
+      if (onFinish) {
+        onFinish();
+      }
     });
   };
 
@@ -256,7 +262,7 @@ export default function AnimatedWelcome({ userName = 'there', onFinish }: Animat
       </Animated.View>
     </Animated.View>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -335,4 +341,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   }
-}); 
+});
+
+export default AnimatedWelcome; 

@@ -89,3 +89,7 @@ out/
 *~
 *.sublime-workspace
 *.sublime-project
+
+# Environment variables
+.env.*
+!.env.example
