@@ -1,71 +1,41 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
 buildscript {
     ext {
-        buildToolsVersion = "33.0.0"
-        minSdkVersion = 21
-        compileSdkVersion = 33
-        targetSdkVersion = 33
-        ndkVersion = "23.1.7779620"
-        kotlinVersion = "1.8.0"
+        buildToolsVersion = findProperty('android.buildToolsVersion') ?: '35.0.0'
+        minSdkVersion = Integer.parseInt(findProperty('android.minSdkVersion') ?: '24')
+        compileSdkVersion = Integer.parseInt(findProperty('android.compileSdkVersion') ?: '35')
+        targetSdkVersion = Integer.parseInt(findProperty('android.targetSdkVersion') ?: '34')
+        kotlinVersion = findProperty('android.kotlinVersion') ?: '1.9.25'
 
-        // Add Expo configuration
-        androidXCore = "1.8.0"
-        androidXCoreKtx = "1.8.0"
-        androidXAppCompat = "1.4.2"
-        androidXBrowser = "1.4.0"
-        androidXWebkit = "1.4.0"
-        androidMaterial = "1.6.1"
-        androidXLifecycle = "2.4.0"
-        expoModulesCoreVersion = "1.11.7"
+        ndkVersion = "26.1.10909125"
     }
     repositories {
         google()
         mavenCentral()
-        maven { url 'https://maven.google.com' }
     }
     dependencies {
-        classpath("com.android.tools.build:gradle:7.4.2")
-        classpath("com.facebook.react:react-native-gradle-plugin")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+        classpath('com.android.tools.build:gradle')
+        classpath('com.facebook.react:react-native-gradle-plugin')
+        classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
     }
 }
+
+apply plugin: "com.facebook.react.rootproject"
 
 allprojects {
     repositories {
         maven {
             // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
-            url("$rootDir/../node_modules/react-native/android")
+            url(new File(['node', '--print', "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim(), '../android'))
         }
         maven {
             // Android JSC is installed from npm
-            url("$rootDir/../node_modules/jsc-android/dist")
+            url(new File(['node', '--print', "require.resolve('jsc-android/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim(), '../dist'))
         }
-        mavenCentral {
-            // We don't want to fetch react-native from Maven Central as there are
-            // older versions over there.
-            content {
-                excludeGroup "com.facebook.react"
-            }
-        }
+
         google()
+        mavenCentral()
         maven { url 'https://www.jitpack.io' }
-        maven { url 'https://maven.google.com' }
-        maven { url "$rootDir/../node_modules/expo/android/maven" }
-        
-        // Add Expo repositories
-        maven {
-            url "$rootDir/../node_modules/expo-modules-core/android/maven"
-        }
-        maven {
-            url "$rootDir/../node_modules/expo-application/android/maven"
-        }
-        maven {
-            url "$rootDir/../node_modules/expo-constants/android/maven"
-        }
-        maven {
-            url "$rootDir/../node_modules/expo-file-system/android/maven"
-        }
-        maven {
-            url "$rootDir/../node_modules/expo-keep-awake/android/maven"
-        }
     }
-} 
+}
