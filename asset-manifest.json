@@ -1,0 +1,27 @@
+{
+  "files": {
+    "main.js": "/static/js/main.f33361c1.js",
+    "static/js/534.3c9ca325.js": "/static/js/534.3c9ca325.js",
+    "static/media/MaterialCommunityIcons.ttf": "/static/media/MaterialCommunityIcons.5d42b4e60858731e7b65.ttf",
+    "static/media/icon.png": "/static/media/icon.c7e71da1f3b4de787cf9.png",
+    "static/media/Ionicons.ttf": "/static/media/Ionicons.9b6b1954a5eb6efeaf11.ttf",
+    "static/media/MaterialIcons.ttf": "/static/media/MaterialIcons.f20305dee9d396fea5c7.ttf",
+    "static/media/FontAwesome5_Solid.ttf": "/static/media/FontAwesome5_Solid.07c3313b24f7b1ca85ee.ttf",
+    "static/media/FontAwesome5_Brands.ttf": "/static/media/FontAwesome5_Brands.9e138496e8f1719c6ebf.ttf",
+    "static/media/AntDesign.ttf": "/static/media/AntDesign.163adab9dbd7cb1ed12a.ttf",
+    "static/media/FontAwesome5_Regular.ttf": "/static/media/FontAwesome5_Regular.1017bce89c72f95bcf8e.ttf",
+    "favicon.ico": "/favicon.ico",
+    "static/media/default-avatar.png": "/static/media/default-avatar.33e7df0963941edbeb70.png",
+    "index.html": "/index.html",
+    "favicon-32.png": "/favicon-32.png",
+    "manifest.json": "/manifest.json",
+    "favicon-16.png": "/favicon-16.png",
+    "serve.json": "/serve.json",
+    "main.f33361c1.js.map": "/static/js/main.f33361c1.js.map",
+    "534.3c9ca325.js.map": "/static/js/534.3c9ca325.js.map"
+  },
+  "entrypoints": [
+    "static/js/534.3c9ca325.js",
+    "static/js/main.f33361c1.js"
+  ]
+}

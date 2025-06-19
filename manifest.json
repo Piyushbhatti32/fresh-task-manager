@@ -1,0 +1,21 @@
+{
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "lang": "en",
+  "name": "fresh-task-manager",
+  "short_name": "fresh-task-manager",
+  "start_url": "/?utm_source=web_app_manifest",
+  "orientation": "portrait",
+  "related_applications": [
+    {
+      "platform": "itunes",
+      "id": "com.piyushbhatti32.freshtaskmanager"
+    },
+    {
+      "platform": "play",
+      "url": "http://play.google.com/store/apps/details?id=com.piyushbhatti32.freshtaskmanager",
+      "id": "com.piyushbhatti32.freshtaskmanager"
+    }
+  ],
+  "prefer_related_applications": true
+}
