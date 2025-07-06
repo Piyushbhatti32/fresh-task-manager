@@ -7,7 +7,8 @@ import {
   Easing, 
   TouchableOpacity,
   Pressable,
-  Dimensions
+  Dimensions,
+  Platform
 } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -32,9 +33,16 @@ const AnimatedWelcome: React.FC<AnimatedWelcomeProps> = ({ userName = 'there', o
   const buttonOpacity = useRef(new Animated.Value(0)).current;
   const slideUpAnim = useRef(new Animated.Value(0)).current;
 
+  // Use native driver only on native platforms and when supported
+  const useNativeDriver = Platform.select({
+    ios: true,
+    android: true,
+    default: false
+  });
+
   useEffect(() => {
     // Make sure animations start from a consistent position
-    slideUpAnim.setValue(0); // Start from center, not below
+    slideUpAnim.setValue(0);
     titleOpacity.setValue(0);
     subtitleOpacity.setValue(0);
     iconOpacity.setValue(0);
@@ -45,40 +53,40 @@ const AnimatedWelcome: React.FC<AnimatedWelcomeProps> = ({ userName = 'there', o
 
     // Sequential animations
     Animated.sequence([
-      // Slide up from bottom (now it's already centered)
+      // Slide up from bottom
       Animated.spring(slideUpAnim, {
         toValue: 0,
         friction: 8,
         tension: 40,
-        useNativeDriver: true,
+        useNativeDriver,
       }),
       
       // Title fade in
       Animated.timing(titleOpacity, {
         toValue: 1,
         duration: 800,
-        useNativeDriver: true,
+        useNativeDriver,
       }),
       
       // Subtitle fade in
       Animated.timing(subtitleOpacity, {
         toValue: 1,
         duration: 800,
-        useNativeDriver: true,
+        useNativeDriver,
       }),
       
       // Icons fade in
       Animated.timing(iconOpacity, {
         toValue: 1,
         duration: 800,
-        useNativeDriver: true,
+        useNativeDriver,
       }),
 
       // Button fade in
       Animated.timing(buttonOpacity, {
         toValue: 1,
         duration: 500,
-        useNativeDriver: true,
+        useNativeDriver,
       })
     ]).start(() => {
       if (onFinish) {
@@ -93,13 +101,13 @@ const AnimatedWelcome: React.FC<AnimatedWelcomeProps> = ({ userName = 'there', o
           toValue: 1,
           duration: 1500,
           easing: Easing.out(Easing.sin),
-          useNativeDriver: true,
+          useNativeDriver,
         }),
         Animated.timing(bounceAnim, {
           toValue: 0,
           duration: 1500,
-          easing: Easing.in(Easing.sin),
-          useNativeDriver: true,
+          easing: Easing.out(Easing.sin),
+          useNativeDriver,
         })
       ])
     ).start();

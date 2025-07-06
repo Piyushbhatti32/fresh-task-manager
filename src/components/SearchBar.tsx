@@ -112,14 +112,25 @@ export default function SearchBar({
 
 const styles = StyleSheet.create({
   container: {
-    height: 48,
-    borderRadius: 24,
     flexDirection: 'row',
     alignItems: 'center',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    height: 40,
+    marginHorizontal: 16,
+    marginVertical: 8,
     borderWidth: 1,
-    paddingHorizontal: 15,
-    marginVertical: 0,
-    flex: 1,
+    ...Platform.select({
+      web: {
+        boxShadow: '0 2px 3px rgba(0, 0, 0, 0.1)',
+      },
+      default: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+      },
+    }),
   },
   searchIcon: {
     marginRight: 8,

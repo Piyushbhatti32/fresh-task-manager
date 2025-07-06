@@ -17,7 +17,10 @@ import {
   Surface,
   ActivityIndicator,
   useTheme,
-  Divider
+  Divider,
+  configureFonts,
+  DefaultTheme,
+  Provider as PaperProvider
 } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -45,6 +48,42 @@ import Constants from 'expo-constants';
 WebBrowser.maybeCompleteAuthSession();
 
 type LoginScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Login'>;
+
+// Create a custom theme that works on both web and native
+const customTheme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    primary: '#007AFF',
+    accent: '#007AFF',
+  },
+  fonts: {
+    regular: {
+      fontFamily: Platform.select({
+        web: 'Arial',
+        default: 'System'
+      })
+    },
+    medium: {
+      fontFamily: Platform.select({
+        web: 'Arial',
+        default: 'System'
+      })
+    },
+    light: {
+      fontFamily: Platform.select({
+        web: 'Arial',
+        default: 'System'
+      })
+    },
+    thin: {
+      fontFamily: Platform.select({
+        web: 'Arial',
+        default: 'System'
+      })
+    }
+  }
+};
 
 export default function LoginScreen() {
   const navigation = useNavigation<LoginScreenNavigationProp>();
@@ -377,7 +416,7 @@ export default function LoginScreen() {
               <Image 
                 source={require('../../assets/icon.png')} 
                 style={styles.logoImage}
-                resizeMode="contain"
+                resizeMode="cover"
               />
             </Surface>
             <Text style={[styles.appName, { color: theme.colors.onBackground }]}>
@@ -431,6 +470,7 @@ export default function LoginScreen() {
             keyboardType="email-address"
             left={<TextInput.Icon icon="email" />}
             style={styles.input}
+            theme={customTheme}
           />
           
           <TextInput
@@ -447,6 +487,7 @@ export default function LoginScreen() {
             }
             left={<TextInput.Icon icon="lock" />}
             style={styles.input}
+            theme={customTheme}
           />
           
           {isSignUp && (
@@ -464,6 +505,7 @@ export default function LoginScreen() {
               }
               left={<TextInput.Icon icon="lock" />}
               style={styles.input}
+              theme={customTheme}
             />
           )}
           
@@ -553,11 +595,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
     overflow: 'hidden',
+    ...Platform.select({
+      web: {
+        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+      },
+      default: {
+        elevation: 4,
+      }
+    })
   },
   logoImage: {
     width: '100%',
     height: '100%',
-    resizeMode: 'cover',
   },
   appName: {
     fontSize: 28,
@@ -570,6 +619,14 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     padding: 24,
+    ...Platform.select({
+      web: {
+        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+      },
+      default: {
+        elevation: 2,
+      }
+    })
   },
   title: {
     fontSize: 24,

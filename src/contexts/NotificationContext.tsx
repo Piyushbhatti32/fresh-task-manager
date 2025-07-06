@@ -201,10 +201,17 @@ const styles = StyleSheet.create({
     right: 16,
     borderRadius: 12,
     overflow: 'hidden',
-    elevation: 6,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    ...Platform.select({
+      web: {
+        boxShadow: '0 3px 4px rgba(0, 0, 0, 0.3)',
+      },
+      default: {
+        elevation: 6,
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      }
+    }),
     zIndex: 1000,
   },
   content: {

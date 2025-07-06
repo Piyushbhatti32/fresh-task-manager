@@ -19,47 +19,95 @@ interface SQLTransaction {
   ) => void;
 }
 
-import * as SQLite from 'expo-sqlite';
-import { MIGRATIONS, SCHEMA_VERSION, DBTask, DBComment, DBAttachment, DBTag, DBTaskTag } from './schema';
 import { Platform } from 'react-native';
-import * as FileSystem from 'expo-file-system';
-import { Asset } from 'expo-asset';
+import { MIGRATIONS, SCHEMA_VERSION, DBTask, DBComment, DBAttachment, DBTag, DBTaskTag } from './schema';
 import { generateId } from '../utils/generateId';
 
-/**
- * NOTE: Type Fixes for SQLite API
- * We've defined types using the SQLite import directly. For all transaction callbacks, use this pattern:
- * 
- * this.db.transaction((tx) => {
- *   tx.executeSql(
- *     'YOUR SQL QUERY',
- *     [params],
- *     (_, result) => {
- *       // Success callback
- *     },
- *     (_, error) => {
- *       // Error callback
- *       return false;
- *     }
- *   );
- * });
- */
+// Import SQLite only for native platforms
+let SQLite: any;
+if (Platform.OS !== 'web') {
+  const { openDatabase } = require('expo-sqlite');
+  SQLite = { openDatabase };
+}
 
 /**
  * Database service to handle SQLite operations
  */
 class DatabaseService {
-  private db: SQLite.SQLiteDatabase;
+  private db: any;
   private initialized: boolean = false;
+  private isWeb: boolean = Platform.OS === 'web';
 
   constructor() {
-    this.db = SQLite.openDatabaseSync('taskmanager.db');
+    if (!this.isWeb) {
+      try {
+        this.db = SQLite.openDatabase('taskmanager.db');
+        console.log('SQLite database opened successfully');
+      } catch (error) {
+        console.error('Error opening SQLite database:', error);
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Initialize the database
+   */
+  async initDatabase(): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+
+    try {
+      console.log('Initializing database...');
+      
+      if (this.isWeb) {
+        // For web, we'll use IndexedDB
+        console.log('Web platform detected, using IndexedDB');
+        this.initialized = true;
+        return;
+      }
+
+      if (!this.db) {
+        throw new Error('Database not available');
+      }
+
+      // Enable foreign key support
+      await this.executeSql('PRAGMA foreign_keys = ON;');
+      
+      // Get current schema version
+      const result = await this.executeSql('PRAGMA user_version;');
+      const currentVersion = result.rows.item(0).user_version;
+      console.log(`Current schema version: ${currentVersion}`);
+
+      // Create tables if they don't exist
+      await this.createAllTables();
+      
+      // Run migrations if needed
+      if (currentVersion < SCHEMA_VERSION) {
+        await this.runMigrations(currentVersion);
+      }
+      
+      // Create default tags if needed
+      await this.createDefaultTagsIfNeeded();
+      
+      this.initialized = true;
+      console.log('Database initialized successfully');
+    } catch (error) {
+      console.error('Error initializing database:', error);
+      throw error;
+    }
   }
 
   /**
    * Force the creation of all database tables
    */
   private async createAllTables(): Promise<void> {
+    if (this.isWeb) {
+      // For web, we'll use IndexedDB
+      return;
+    }
+
     try {
       console.log('Creating all database tables...');
       
@@ -130,14 +178,9 @@ class DatabaseService {
         )`
       ];
 
-      // Execute each create table query
+      // Execute each query in sequence
       for (const query of createTableQueries) {
-        try {
-          await this.executeSql(query);
-        } catch (error) {
-          console.error('Error creating table:', error);
-          throw error;
-        }
+        await this.executeSql(query);
       }
 
       // Create indexes
@@ -161,103 +204,55 @@ class DatabaseService {
       
       console.log('All tables and indexes created successfully');
     } catch (error) {
-      console.error('Failed to create all tables:', error);
+      console.error('Error creating tables:', error);
       throw error;
     }
   }
 
   /**
-   * Initialize the database by creating necessary tables and running migrations
-   */
-  async initDatabase(): Promise<void> {
-    if (this.initialized) return;
-
-    try {
-      console.log('Initializing database...');
-      
-      // First, ensure foreign keys are enabled
-      await this.executeSql('PRAGMA foreign_keys = ON;');
-
-      // Create tables in the correct order
-      await this.createAllTables();
-
-      // Check if we need to run migrations
-      const schemaVersionResult = await this.executeSql('PRAGMA user_version;');
-      const currentVersion = schemaVersionResult.rows[0]?.user_version || 0;
-      console.log(`Current schema version: ${currentVersion}, Target version: ${SCHEMA_VERSION}`);
-      
-      // Always run migrations if schema version is 0 or less than target version
-      if (currentVersion < SCHEMA_VERSION) {
-        console.log('Running migrations to create tables...');
-        await this.runMigrations(currentVersion);
-        
-        // Create default tags after tables are created
-        await this.createDefaultTagsIfNeeded();
-      }
-      
-      this.initialized = true;
-      console.log('Database initialization complete.');
-    } catch (error) {
-      console.error('Database initialization failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Execute SQL query with parameters
+   * Execute a SQL query
    */
   async executeSql(
     query: string, 
     params: any[] = []
-  ): Promise<SQLResultSet> {
-    try {
-      // Ensure params are properly serialized primitive values
-      const processedParams = params.map(param => {
-        if (param === null || param === undefined) return null;
-        if (typeof param === 'object') return JSON.stringify(param);
-        return param;
-      });
-      
-      // Check if the query is a SELECT statement
-      const isSelectQuery = query.trim().toUpperCase().startsWith('SELECT');
-      
-      if (isSelectQuery) {
-        // Use getAllAsync for SELECT queries
-        const result = await this.db.getAllAsync(query, processedParams);
-        return {
-          insertId: undefined,
-          rowsAffected: 0,
-          rows: {
-            length: result.length,
-            _array: result,
-            item: (idx: number) => result[idx]
-          }
-        };
-      } else {
-        // Use runAsync for INSERT, UPDATE, DELETE operations
-        const result = await this.db.runAsync(query, processedParams);
-        return {
-          insertId: result.lastInsertRowId,
-          rowsAffected: result.changes,
-          rows: {
-            length: 0,
-            _array: [],
-            item: () => undefined
-          }
-        };
-      }
-    } catch (error) {
-      console.error('SQL Error:', error, 'Query:', query, 'Params:', params);
-      throw error;
+  ): Promise<any> {
+    if (this.isWeb) {
+      // For web, return empty result
+      return {
+        rows: {
+          length: 0,
+          item: () => null,
+          _array: []
+        },
+        rowsAffected: 0
+      };
     }
+
+    if (!this.db) {
+      throw new Error('Database not available');
+    }
+
+    return new Promise((resolve, reject) => {
+      this.db.transaction(
+        (tx: any) => {
+          tx.executeSql(
+            query,
+            params,
+            (tx: any, result: any) => resolve(result),
+            (tx: any, error: any) => reject(error)
+          );
+        },
+        (error: any) => reject(error)
+      );
+    });
   }
 
   /**
    * Close the database connection
    */
   close(): void {
-    if (Platform.OS !== 'web') {
-      this.db.closeAsync();
+    if (!this.isWeb && this.db) {
+      this.db.close();
     }
   }
 

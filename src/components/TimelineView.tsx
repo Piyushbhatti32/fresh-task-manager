@@ -5,7 +5,8 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Animated
+  Animated,
+  Platform
 } from 'react-native';
 import { format, addDays, isToday, isTomorrow, isYesterday, isAfter, isSameDay, isBefore } from 'date-fns';
 import { useTaskStore } from '../stores/taskStore';
@@ -329,11 +330,18 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 8,
     padding: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
+    ...Platform.select({
+      web: {
+        boxShadow: '0 1px 1px rgba(0, 0, 0, 0.1)',
+      },
+      default: {
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 1,
+      }
+    })
   },
   taskStatusContainer: {
     marginRight: 12,

@@ -38,10 +38,17 @@ function AppContent() {
 
 export default function App() {
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider style={styles.safeArea} testID="app-container">
       <ThemeProvider>
         <AppContent />
       </ThemeProvider>
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    pointerEvents: 'auto'
+  }
+});
